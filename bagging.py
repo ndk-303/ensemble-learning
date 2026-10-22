@@ -2,7 +2,7 @@
 BAGGING (Bootstrap Aggregating):
 - Lấy mẫu Bootstrap có hoàn lại từ tập dữ liệu huấn luyện.
 - Huấn luyện T mô hình cơ sở độc lập trên từng tập con mẫu.
-- Kết hợp các dự đoán độc lập bằng biểu quyết đa số (Majority Voting).
+- Kết hợp các dự đoán độc lập bằng biểu quyết đa số (Majority Voting) cho cả nhị phân và đa lớp.
 """
 import numpy as np
 from sklearn.base import clone
@@ -12,6 +12,7 @@ from sklearn.tree import DecisionTreeClassifier
 class Bagging:
     """
     Thuật toán Bagging tự cài đặt (From Scratch logic) hỗ trợ base_estimator từ Scikit-Learn.
+    Hỗ trợ cả bài toán phân lớp nhị phân và đa lớp (Multi-class).
     Mặc định sử dụng DecisionTreeClassifier (cây sâu để giảm phương sai / variance).
     """
 
@@ -22,13 +23,15 @@ class Bagging:
         self.T = T
         self.seed = seed
         self.estimators_ = []
+        self.classes_ = None
 
     def fit(self, X, y):
         """
         Huấn luyện T mô hình cơ sở trên T mẫu Bootstrap khác nhau.
         X: np.ndarray, kích thước (n, d)
-        y: np.ndarray, nhãn {-1, 1}
+        y: np.ndarray, nhãn phân lớp (0..K-1 hoặc {-1, 1})
         """
+        self.classes_ = np.unique(y)
         rng = np.random.default_rng(self.seed)
         n = len(y)
         self.estimators_ = []
@@ -49,11 +52,17 @@ class Bagging:
 
     def staged_predict(self, X):
         """Dự đoán tích lũy qua từng mô hình t = 1..T để theo dõi đường cong hội tụ."""
-        votes = np.zeros(len(X))
+        n_samples = len(X)
+        n_classes = len(self.classes_)
+        votes = np.zeros((n_samples, n_classes), dtype=int)
+
         for est in self.estimators_:
-            votes += est.predict(X)
-            # Biểu quyết đa số trên nhãn {-1, 1}
-            yield np.where(votes >= 0, 1, -1)
+            preds = est.predict(X)
+            for c_idx, c in enumerate(self.classes_):
+                votes[preds == c, c_idx] += 1
+            # Biểu quyết đa số (Majority Voting)
+            best_idx = np.argmax(votes, axis=1)
+            yield self.classes_[best_idx]
 
     def predict(self, X):
         """Dự đoán nhãn cuối cùng bằng Majority Voting từ toàn bộ T mô hình."""

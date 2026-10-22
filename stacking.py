@@ -3,6 +3,7 @@ STACKING (Stacked Generalization):
 - Tầng 1 (Base Learners): Dự đoán Out-Of-Fold (OOF) qua K-Fold CV để tạo meta-features.
 - Tránh rò rỉ dữ liệu (Data Leakage) bằng cách chỉ dự đoán trên fold giữ lại.
 - Tầng 2 (Meta Learner): Huấn luyện trên ma trận meta-features để đưa ra dự đoán tổng hợp.
+- Hỗ trợ cả bài toán nhị phân và đa lớp (Multi-class).
 """
 import numpy as np
 from sklearn.base import clone
@@ -12,6 +13,7 @@ from sklearn.model_selection import KFold
 class Stacking:
     """
     Thuật toán Stacking tự cài đặt (From Scratch logic) hỗ trợ các estimator từ Scikit-Learn.
+    Hỗ trợ cả bài toán phân lớp nhị phân và đa lớp.
     """
 
     def __init__(self, base_estimators, meta_estimator, k=5, seed=0):
@@ -29,18 +31,17 @@ class Stacking:
         self.meta_features_ = None
 
     def _get_pred(self, model, X):
-        """Trích xuất xác suất dự đoán (hoặc decision function) cho lớp dương (+1)."""
+        """Trích xuất xác suất dự đoán (hoặc decision function) từ mô hình cơ sở."""
         if hasattr(model, "predict_proba"):
-            proba = model.predict_proba(X)
-            classes = list(getattr(model, "classes_", [-1, 1]))
-            if 1 in classes:
-                pos_idx = classes.index(1)
-                return proba[:, pos_idx]
-            return proba[:, -1]
+            return model.predict_proba(X)
         elif hasattr(model, "decision_function"):
-            return model.decision_function(X)
+            df = model.decision_function(X)
+            if df.ndim == 1:
+                df = df[:, np.newaxis]
+            return df
         else:
-            return model.predict(X)
+            p = model.predict(X)
+            return p[:, np.newaxis]
 
     def fit(self, X, y):
         """
@@ -50,20 +51,23 @@ class Stacking:
         """
         n = len(y)
         kf = KFold(n_splits=self.k, shuffle=True, random_state=self.seed)
-        num_bases = len(self.base_estimators)
-
-        # Ma trận đặc trưng tầng 2 (Meta-features Z)
-        Z = np.zeros((n, num_bases))
+        Z = None
 
         # 1. Cơ chế Out-Of-Fold (OOF) chống Overfitting và Data Leakage
         for train_idx, val_idx in kf.split(X, y):
             X_tr, y_tr = X[train_idx], y[train_idx]
             X_val = X[val_idx]
 
-            for j, base in enumerate(self.base_estimators):
+            fold_preds = []
+            for base in self.base_estimators:
                 model_fold = clone(base)
                 model_fold.fit(X_tr, y_tr)
-                Z[val_idx, j] = self._get_pred(model_fold, X_val)
+                fold_preds.append(self._get_pred(model_fold, X_val))
+
+            Z_val = np.column_stack(fold_preds)
+            if Z is None:
+                Z = np.zeros((n, Z_val.shape[1]))
+            Z[val_idx] = Z_val
 
         self.meta_features_ = Z
 
