@@ -62,8 +62,6 @@ def build_model(model_name, mode="bagging", seed=0):
 def get_base_models(seed=0):
     """Khoi tao danh sach cac mo hinh co so mac dinh de danh gia."""
     return {
-        "Stump (1 tang)": build_model("dt", mode="boosting", seed=seed),
-        "Cay sau (depth=12)": build_model("dt", mode="bagging", seed=seed),
         "KNN (k=5)": build_model("knn", seed=seed),
         "Logistic Regression": build_model("lr", seed=seed),
     }

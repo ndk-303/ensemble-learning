@@ -141,7 +141,8 @@ def save_visualizations(
     ax.plot(T_grid, ada_tr, "--", c="tab:red", label="AdaBoost (SAMME) - Train")
     ax.plot(T_grid, ada_te, c="tab:red", lw=1.8, label="AdaBoost (SAMME) - Test")
     ax.plot(np.arange(1, bagging_t + 1), bag_te, c="tab:blue", lw=1.8, label="Bagging - Test")
-    ax.axhline(res["Stump (1 tang)"][1], c="gray", ls=":", label="Stump don - Test")
+    if "Stump (1 tang)" in res:
+        ax.axhline(res["Stump (1 tang)"][1], c="gray", ls=":", label="Stump don - Test")
     ax.set_xlabel("So luong mo hinh (T)")
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0.15, 1.02)

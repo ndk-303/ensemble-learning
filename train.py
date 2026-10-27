@@ -359,7 +359,7 @@ def run_all(args):
         fit_times[name] = t_fit
         acc = accuracy_score(yte, m.predict(Xte))
         test_accs[name] = acc
-        log_train(f"[{idx}/4] Fitting {name}... done in {t_fit:.4f}s | Test Acc: {acc:.4f} ({acc*100:.2f}%)")
+        log_train(f"[{idx}/{len(models)}] Fitting {name}... done in {t_fit:.4f}s | Test Acc: {acc:.4f} ({acc*100:.2f}%)")
 
     # --- [2/4] BAGGING ---
     print("\n" + "-" * 50)
