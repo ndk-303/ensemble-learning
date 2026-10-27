@@ -342,62 +342,116 @@ def run_all(args):
     log_info(f"Train: {len(ytr)} | Test: {len(yte)}")
 
     # ==================================================
-    # 3. TRAINING
+    # 3. TRAINING EACH METHOD & MODEL
     # ==================================================
-    log_info("Initializing all base and ensemble models...")
-    log_train("Training started...")
-    t_start = time.perf_counter()
-
     models = get_base_models(seed=args.seed)
     fit_times = {}
+    test_accs = {}
 
+    # --- [1/4] BASE MODELS ---
+    print("\n" + "-" * 50)
+    print(" [1/4] BASE MODELS (Mo hinh co so)")
+    print("-" * 50)
     for idx, (name, m) in enumerate(list(models.items()), 1):
         t0 = time.perf_counter()
         m.fit(Xtr, ytr)
-        fit_times[name] = time.perf_counter() - t0
-        log_train(f"[{idx}/7] Fitting {name}... done in {fit_times[name]:.4f}s")
+        t_fit = time.perf_counter() - t0
+        fit_times[name] = t_fit
+        acc = accuracy_score(yte, m.predict(Xte))
+        test_accs[name] = acc
+        log_train(f"[{idx}/4] Fitting {name}... done in {t_fit:.4f}s | Test Acc: {acc:.4f} ({acc*100:.2f}%)")
 
-    # Bagging
+    # --- [2/4] BAGGING ---
+    print("\n" + "-" * 50)
+    print(f" [2/4] BAGGING ({bag_t} estimators)")
+    print("-" * 50)
+    log_info(f"Initializing BaggingClassifier ({bag_t} estimators)...")
+    log_train("Training started...")
+
+    def bag_callback(curr, total):
+        step = max(1, total // 5)
+        if curr == 1 or curr == total or curr % step == 0:
+            pct = int((curr / total) * 100)
+            log_train(f"Fitting estimators: {curr}/{total} ({pct}%)")
+
     t0 = time.perf_counter()
-    bag = Bagging(base_estimator=build_model("dt", mode="bagging", seed=args.seed), T=bag_t, seed=args.seed).fit(Xtr, ytr)
+    bag = Bagging(base_estimator=build_model("dt", mode="bagging", seed=args.seed), T=bag_t, seed=args.seed)
+    bag.fit(Xtr, ytr, callback=bag_callback)
+    bag_fit_time = time.perf_counter() - t0
     bag_name = f"Bagging ({bag_t} cay)"
-    fit_times[bag_name] = time.perf_counter() - t0
+    fit_times[bag_name] = bag_fit_time
     models[bag_name] = bag
-    log_train(f"[5/7] Fitting {bag_name}... done in {fit_times[bag_name]:.4f}s")
+    bag_acc = accuracy_score(yte, bag.predict(Xte))
+    test_accs[bag_name] = bag_acc
+    log_done(f"Training completed in {bag_fit_time:.2f}s")
+    log_eval(f"Test Accuracy : {bag_acc:.4f} ({bag_acc*100:.2f}%)")
 
-    # AdaBoost
+    # --- [3/4] BOOSTING ---
+    print("\n" + "-" * 50)
+    print(f" [3/4] BOOSTING (AdaBoost SAMME, {ada_t} stump, lr={ada_lr})")
+    print("-" * 50)
+    log_info(f"Initializing AdaBoost (SAMME, {ada_t} weak learners, lr={ada_lr})...")
+    log_train("Training started...")
+
+    def ada_callback(curr, total):
+        step = max(1, total // 5)
+        if curr == 1 or curr == total or curr % step == 0:
+            pct = int((curr / total) * 100)
+            log_train(f"Iterating weak learners: {curr}/{total} ({pct}%)")
+
     t0 = time.perf_counter()
-    ada = AdaBoost(base_estimator=build_model("dt", mode="boosting", seed=args.seed), T=ada_t, learning_rate=ada_lr, random_state=args.seed).fit(Xtr, ytr)
+    ada = AdaBoost(base_estimator=build_model("dt", mode="boosting", seed=args.seed), T=ada_t, learning_rate=ada_lr, random_state=args.seed)
+    ada.fit(Xtr, ytr, callback=ada_callback)
+    ada_fit_time = time.perf_counter() - t0
     ada_name = f"AdaBoost ({ada_t} stump)"
-    fit_times[ada_name] = time.perf_counter() - t0
+    fit_times[ada_name] = ada_fit_time
     models[ada_name] = ada
-    log_train(f"[6/7] Fitting {ada_name}... done in {fit_times[ada_name]:.4f}s")
+    ada_acc = accuracy_score(yte, ada.predict(Xte))
+    test_accs[ada_name] = ada_acc
+    log_done(f"Training completed in {ada_fit_time:.2f}s")
+    log_eval(f"Test Accuracy : {ada_acc:.4f} ({ada_acc*100:.2f}%)")
 
-    # Stacking
+    # --- [4/4] STACKING ---
+    print("\n" + "-" * 50)
+    print(" [4/4] STACKING (DT + KNN + SVM -> LR, cv=5)")
+    print("-" * 50)
+    log_info("Initializing StackingClassifier...")
+    log_train("Training started...")
+
+    def stk_callback(phase):
+        if phase == "phase_1":
+            log_train("[Phase 1/3] Generating Out-Of-Fold predictions via 5-Fold CV...")
+        elif phase == "phase_2":
+            log_train("[Phase 2/3] Fitting Level-2 Meta-Learner (Logistic Regression)...")
+        elif phase == "phase_3":
+            log_train("[Phase 3/3] Refitting base estimators on full training data...")
+
     t0 = time.perf_counter()
     stk_bases = [build_model("dt", mode="stacking", seed=args.seed), build_model("knn", seed=args.seed), build_model("svm", seed=args.seed)]
     meta_est = build_model("lr", seed=args.seed)
-    stk = Stacking(base_estimators=stk_bases, meta_estimator=meta_est, k=5, seed=args.seed).fit(Xtr, ytr)
+    stk = Stacking(base_estimators=stk_bases, meta_estimator=meta_est, k=5, seed=args.seed)
+    stk.fit(Xtr, ytr, callback=stk_callback)
+    stk_fit_time = time.perf_counter() - t0
     stk_name = "Stacking (DT+KNN+SVM -> LR)"
-    fit_times[stk_name] = time.perf_counter() - t0
+    fit_times[stk_name] = stk_fit_time
     models[stk_name] = stk
-    log_train(f"[7/7] Fitting {stk_name}... done in {fit_times[stk_name]:.4f}s")
-
-    total_train_time = time.perf_counter() - t_start
-    log_done(f"Training completed in {total_train_time:.2f}s")
+    stk_acc = accuracy_score(yte, stk.predict(Xte))
+    test_accs[stk_name] = stk_acc
+    log_done(f"Training completed in {stk_fit_time:.2f}s")
+    log_eval(f"Test Accuracy : {stk_acc:.4f} ({stk_acc*100:.2f}%)")
 
     # ==================================================
-    # 4. EVALUATION
+    # 4. FINAL COMPARISON TABLE
     # ==================================================
-    print()
-    log_eval("Comparison Table (Accuracy & Training Time):")
+    print("\n" + "=" * 50)
+    print(" FINAL EVALUATION & COMPARISON")
+    print("=" * 50)
     eval_rows = []
     res = {}
     for name, m in models.items():
         tr_acc = accuracy_score(ytr, m.predict(Xtr))
-        y_pred = m.predict(Xte)
-        te_acc = accuracy_score(yte, y_pred)
-        t_fit = fit_times.get(name, 0.0)
+        te_acc = test_accs[name]
+        t_fit = fit_times[name]
         res[name] = (tr_acc, te_acc)
         eval_rows.append([name, f"{tr_acc:.4f}", f"{te_acc:.4f}", f"{t_fit:.4f}s"])
 
@@ -410,8 +464,7 @@ def run_all(args):
     # ==================================================
     # 5. ARTIFACTS
     # ==================================================
-    print()
-    saved = save_visualizations(
+    save_visualizations(
         res=res,
         ytr=ytr,
         yte=yte,
