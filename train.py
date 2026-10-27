@@ -1,12 +1,12 @@
 """
 Script huan luyen va danh gia Ensemble Learning tren Scikit-Learn Digits.
 Ho tro dung 6 tham so dong lenh (argparse):
-  --method:        bagging | boosting | stacking (Bat buoc)
+  --method:        bagging | boosting | stacking | all (Bat buoc, 'all' de so sanh toan bo)
   --base_model:    dt | knn | svm | lr (Stacking ho tro nhieu model cach nhau boi dau phay)
   --seed:          int >= 0
   --test_size:     0.0 < float < 1.0
-  --n_estimators:  int >= 1 (chi ap dung cho bagging, boosting)
-  --learning_rate: float > 0 (chi ap dung cho boosting)
+  --n_estimators:  int >= 1 (ap dung cho bagging, boosting, all)
+  --learning_rate: float > 0 (ap dung cho boosting, all)
 """
 import sys
 import time
@@ -26,8 +26,8 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, StackingClassifier
 
 from src.methods import Bagging, AdaBoost, Stacking
-from src.data import load_data, build_model, SUPPORTED_MODELS
-from src.utils import log, print_table
+from src.data import load_data, build_model, get_base_models, SUPPORTED_MODELS
+from src.utils import log, print_table, save_visualizations
 
 
 def parse_args():
@@ -42,8 +42,8 @@ def parse_args():
         "--method",
         type=str,
         required=True,
-        choices=["bagging", "boosting", "stacking"],
-        help="Phuong phap Ensemble: bagging | boosting | stacking",
+        choices=["bagging", "boosting", "stacking", "all"],
+        help="Phuong phap Ensemble: bagging | boosting | stacking | all (chay toan bo de so sanh)",
     )
 
     # 2. --base_model
@@ -75,7 +75,7 @@ def parse_args():
         "--n_estimators",
         type=int,
         default=None,
-        help="So luong estimators (int >= 1, ap dung cho bagging va boosting)",
+        help="So luong estimators (int >= 1, ap dung cho bagging, boosting, all)",
     )
 
     # 6. --learning_rate
@@ -83,7 +83,7 @@ def parse_args():
         "--learning_rate",
         type=float,
         default=None,
-        help="Toc do hoc learning_rate (float > 0, chi ap dung cho boosting)",
+        help="Toc do hoc learning_rate (float > 0, chi ap dung cho boosting, all)",
     )
 
     args = parser.parse_args()
@@ -104,7 +104,11 @@ def parse_args():
     # --- RANG BUOC THEO TUNG METHOD ---
     method = args.method.lower()
 
-    if method == "stacking":
+    if method == "all":
+        # Khong rang buoc rieng vi 'all' se chay toan bo cac phuong phap
+        pass
+
+    elif method == "stacking":
         # Argument khong hop le cho Stacking
         if args.n_estimators is not None:
             parser.error("Tham so --n_estimators khong ap dung cho phuong phap 'stacking'.")
@@ -162,8 +166,170 @@ def parse_args():
     return args
 
 
-def train_and_evaluate(args):
-    """Huan luyen mo hinh tu cai dat va doi chieu voi Scikit-Learn."""
+def run_all(args):
+    """Chay toan bo cac mo hinh co so va cac phuong phap Ensemble de so sanh tren cung tap test."""
+    total_start = time.perf_counter()
+    bag_t = args.n_estimators if args.n_estimators is not None else 50
+    ada_t = args.n_estimators if args.n_estimators is not None else 100
+    ada_lr = args.learning_rate if args.learning_rate is not None else 1.0
+
+    print("\n" + "=" * 80)
+    print(" ENSEMBLE LEARNING BENCHMARK PIPELINE: SO SANH TOAN BO CAC PHUONG PHAP")
+    print("=" * 80)
+    log("CONFIG", "Cau hinh tham so thuc nghiem:")
+    print(f"       • Method              : all (So sanh Bagging, Boosting, Stacking)")
+    print(f"       • Random Seed         : {args.seed}")
+    print(f"       • Test Size           : {args.test_size} ({int(args.test_size*100)}%)")
+    print(f"       • Bagging Estimators  : {bag_t} cay (dt)")
+    print(f"       • AdaBoost Estimators : {ada_t} stump (learning_rate={ada_lr})")
+    print(f"       • Stacking Setup      : Base models (DT, KNN, SVM) -> LR Meta-model (cv=5)")
+    print("=" * 80)
+
+    # 1. Tai va chia du lieu
+    log("DATA", f"Tai tap du lieu Scikit-Learn Digits (Stratified Split: {int((1-args.test_size)*100)}% Train / {int(args.test_size*100)}% Test)...")
+    Xtr, ytr, Xte, yte, _ = load_data(test_size=args.test_size, seed=args.seed)
+    classes = np.unique(ytr)
+    n_classes = len(classes)
+    log("DATA", f"Tong mau: {len(ytr)+len(yte)} | Train: {len(ytr)} | Test: {len(yte)} | So dac trung: {Xtr.shape[1]} | So lop: {n_classes}")
+
+    # 2. Khoi tao va huan luyen cac mo hinh co so
+    log("TRAIN", "Bat dau huan luyen cac mo hinh co so & phuong phap Ensemble...")
+    models = get_base_models(seed=args.seed)
+    fit_times = {}
+
+    for idx, (name, model) in enumerate(list(models.items()), 1):
+        t0 = time.perf_counter()
+        model.fit(Xtr, ytr)
+        fit_times[name] = time.perf_counter() - t0
+        log("TRAIN", f"[{idx}/7] Da huan luyen {name:<28s} trong {fit_times[name]:.4f}s")
+
+    # 3. Khoi tao va huan luyen Bagging, AdaBoost, Stacking
+    t0 = time.perf_counter()
+    bag = Bagging(
+        base_estimator=build_model("dt", mode="bagging", seed=args.seed),
+        T=bag_t,
+        seed=args.seed,
+    ).fit(Xtr, ytr)
+    bag_name = f"Bagging ({bag_t} cay)"
+    fit_times[bag_name] = time.perf_counter() - t0
+    models[bag_name] = bag
+    log("TRAIN", f"[5/7] Da huan luyen {bag_name:<28s} trong {fit_times[bag_name]:.4f}s")
+
+    t0 = time.perf_counter()
+    ada = AdaBoost(
+        base_estimator=build_model("dt", mode="boosting", seed=args.seed),
+        T=ada_t,
+        learning_rate=ada_lr,
+        random_state=args.seed,
+    ).fit(Xtr, ytr)
+    ada_name = f"AdaBoost ({ada_t} stump)"
+    fit_times[ada_name] = time.perf_counter() - t0
+    models[ada_name] = ada
+    log("TRAIN", f"[6/7] Da huan luyen {ada_name:<28s} trong {fit_times[ada_name]:.4f}s")
+
+    t0 = time.perf_counter()
+    stacking_bases = [
+        build_model("dt", mode="stacking", seed=args.seed),
+        build_model("knn", seed=args.seed),
+        build_model("svm", seed=args.seed),
+    ]
+    meta_est = build_model("lr", seed=args.seed)
+    stk = Stacking(base_estimators=stacking_bases, meta_estimator=meta_est, k=5, seed=args.seed).fit(Xtr, ytr)
+    stk_name = "Stacking (DT+KNN+SVM -> LR)"
+    fit_times[stk_name] = time.perf_counter() - t0
+    models[stk_name] = stk
+    log("TRAIN", f"[7/7] Da huan luyen {stk_name:<28s} trong {fit_times[stk_name]:.4f}s")
+
+    # 4. Danh gia toan bo
+    log("EVAL", "Bang tong hop ket qua danh gia do chinh xac (Accuracy) & thoi gian fit:")
+    eval_rows = []
+    res = {}
+    for name, model in models.items():
+        tr_acc = accuracy_score(ytr, model.predict(Xtr))
+        te_acc = accuracy_score(yte, model.predict(Xte))
+        res[name] = (tr_acc, te_acc)
+        eval_rows.append([name, f"{tr_acc:.4f}", f"{te_acc:.4f}", f"{fit_times.get(name, 0):.4f}s"])
+
+    print_table(
+        headers=["Mo hinh", "Train Acc", "Test Acc", "Fit Time"],
+        rows=eval_rows,
+        alignments=["<", ">", ">", ">"],
+    )
+
+    # 5. Doi chieu truc tiep voi Scikit-Learn
+    log("BENCHMARK", "Kiem thu & doi chieu ket qua truc tiep voi Scikit-Learn:")
+    sk_models = {
+        "KNN (k=5)": build_model("knn", seed=args.seed),
+        "Logistic Regression": build_model("lr", seed=args.seed),
+        bag_name: BaggingClassifier(
+            estimator=build_model("dt", mode="bagging", seed=args.seed),
+            n_estimators=bag_t,
+            random_state=args.seed,
+        ),
+        ada_name: AdaBoostClassifier(
+            estimator=build_model("dt", mode="boosting", seed=args.seed),
+            n_estimators=ada_t,
+            learning_rate=ada_lr,
+            random_state=args.seed,
+        ),
+        stk_name: StackingClassifier(
+            estimators=[
+                ("dt", build_model("dt", mode="stacking", seed=args.seed)),
+                ("knn", build_model("knn", seed=args.seed)),
+                ("svm", build_model("svm", seed=args.seed)),
+            ],
+            final_estimator=meta_est,
+            cv=5,
+        ),
+    }
+
+    bench_rows = []
+    for name, sk_model in sk_models.items():
+        sk_acc = accuracy_score(yte, sk_model.fit(Xtr, ytr).predict(Xte))
+        self_acc = res[name][1]
+        diff = abs(self_acc - sk_acc)
+        status = "KHOP 100%" if diff < 1e-5 else ("TUONG DUONG" if diff < 0.01 else "LECH")
+        bench_rows.append([name, f"{self_acc:.4f}", f"{sk_acc:.4f}", f"{diff:+.4f}", status])
+
+    print_table(
+        headers=["Mo hinh", "Tu cai dat", "Scikit-Learn", "Chenh lech", "Trang thai"],
+        rows=bench_rows,
+        alignments=["<", ">", ">", ">", "^"],
+    )
+
+    # 6. Thong ke ma tran nham lan
+    log("EVAL", "Thong ke so luong mau du doan dung tren tap Test (540 mau):")
+    for name, model in models.items():
+        cm = confusion_matrix(yte, model.predict(Xte), labels=classes)
+        correct = int(np.trace(cm))
+        total = int(np.sum(cm))
+        pct = (correct / total) * 100
+        print(f"       • {name:<30s} -> Dung: {correct:3d}/{total} ({pct:.2f}%)")
+
+    # 7. Xuat bieu do truc quan hoa
+    save_visualizations(
+        res=res,
+        ytr=ytr,
+        yte=yte,
+        Xtr=Xtr,
+        Xte=Xte,
+        ada=ada,
+        bag=bag,
+        stk=stk,
+        adaboost_t=ada_t,
+        bagging_t=bag_t,
+        stk_name=stk_name,
+        fig_dir="figs",
+    )
+
+    total_time = time.perf_counter() - total_start
+    print("=" * 80)
+    log("DONE", f"Hoan thanh toan bo thuc nghiem so sanh trong {total_time:.2f} giay.")
+    print("=" * 80 + "\n")
+
+
+def train_single_method(args):
+    """Huan luyen 1 phuong phap don le va doi chieu voi Scikit-Learn."""
     total_start = time.perf_counter()
     method = args.method.lower()
 
@@ -279,6 +445,13 @@ def train_and_evaluate(args):
     print("=" * 80 + "\n")
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
-    train_and_evaluate(args)
+    if args.method.lower() == "all":
+        run_all(args)
+    else:
+        train_single_method(args)
+
+
+if __name__ == "__main__":
+    main()
