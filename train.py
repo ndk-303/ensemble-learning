@@ -23,12 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-)
+from sklearn.metrics import accuracy_score
 
 from src.methods import Bagging, AdaBoost, Stacking
 from src.data import load_data, build_model, get_base_models, SUPPORTED_MODELS
@@ -300,16 +295,9 @@ def train_single_method(args):
     # ==================================================
     print()
     y_pred = model.predict(Xte)
-
     acc = accuracy_score(yte, y_pred)
-    prec = precision_score(yte, y_pred, average="macro", zero_division=0)
-    rec = recall_score(yte, y_pred, average="macro", zero_division=0)
-    f1 = f1_score(yte, y_pred, average="macro", zero_division=0)
 
-    log_eval(f"Accuracy      : {acc:.4f}")
-    log_eval(f"Precision     : {prec:.4f} (macro)")
-    log_eval(f"Recall        : {rec:.4f} (macro)")
-    log_eval(f"F1-Score      : {f1:.4f} (macro)")
+    log_eval(f"Accuracy      : {acc:.4f} ({acc*100:.2f}%)")
     log_eval(f"Training Time : {train_time:.2f}s")
 
     # ==================================================
@@ -404,23 +392,21 @@ def run_all(args):
     # 4. EVALUATION
     # ==================================================
     print()
-    log_eval("Comparison Table (Accuracy, Precision, Recall, F1-Score):")
+    log_eval("Comparison Table (Accuracy & Training Time):")
     eval_rows = []
     res = {}
     for name, m in models.items():
         tr_acc = accuracy_score(ytr, m.predict(Xtr))
         y_pred = m.predict(Xte)
         te_acc = accuracy_score(yte, y_pred)
-        prec = precision_score(yte, y_pred, average="macro", zero_division=0)
-        rec = recall_score(yte, y_pred, average="macro", zero_division=0)
-        f1 = f1_score(yte, y_pred, average="macro", zero_division=0)
+        t_fit = fit_times.get(name, 0.0)
         res[name] = (tr_acc, te_acc)
-        eval_rows.append([name, f"{tr_acc:.4f}", f"{te_acc:.4f}", f"{prec:.4f}", f"{rec:.4f}", f"{f1:.4f}"])
+        eval_rows.append([name, f"{tr_acc:.4f}", f"{te_acc:.4f}", f"{t_fit:.4f}s"])
 
     print_table(
-        headers=["Mo hinh", "Train Acc", "Test Acc", "Precision", "Recall", "F1-Score"],
+        headers=["Mo hinh", "Train Acc", "Test Acc", "Fit Time"],
         rows=eval_rows,
-        alignments=["<", ">", ">", ">", ">", ">"],
+        alignments=["<", ">", ">", ">"],
     )
 
     # ==================================================
