@@ -16,11 +16,12 @@ class AdaBoost:
     Mặc định sử dụng Decision Stump (DecisionTreeClassifier với max_depth=1).
     """
 
-    def __init__(self, base_estimator=None, T=50, random_state=0):
+    def __init__(self, base_estimator=None, T=50, learning_rate=1.0, random_state=0):
         self.base_estimator = base_estimator or DecisionTreeClassifier(
             max_depth=1, random_state=random_state
         )
         self.T = T
+        self.learning_rate = learning_rate
         self.random_state = random_state
         self.estimators_ = []
         self.estimator_weights_ = []
@@ -55,11 +56,11 @@ class AdaBoost:
             eps = np.clip(eps, 1e-10, 1.0 - 1e-10)  # Tránh lỗi chia cho 0 hoặc log(0)
 
             # 4. Tính trọng số mô hình theo công thức SAMME:
-            # alpha_t = ln((1 - epsilon_t) / epsilon_t) + ln(K - 1)
+            # alpha_t = learning_rate * (ln((1 - epsilon_t) / epsilon_t) + ln(K - 1))
             if K > 1:
-                alpha = np.log((1.0 - eps) / eps) + np.log(K - 1)
+                alpha = self.learning_rate * (np.log((1.0 - eps) / eps) + np.log(K - 1))
             else:
-                alpha = np.log((1.0 - eps) / eps)
+                alpha = self.learning_rate * np.log((1.0 - eps) / eps)
 
             # Nếu mô hình không tốt hơn đoán ngẫu nhiên (alpha <= 0), dừng sớm
             if alpha <= 0:

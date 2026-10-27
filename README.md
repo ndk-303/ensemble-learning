@@ -61,38 +61,39 @@ Cài đặt thư viện:
 pip install -r requirements.txt
 ```
 
-### Chạy mặc định toàn bộ thí nghiệm (kèm lặp 10 lần đánh giá độ ổn định):
-```bash
-python train.py
-```
-
 ### Xem hướng dẫn tất cả các đối số CLI:
 ```bash
 python train.py --help
 ```
 
-### Các tùy chọn dòng lệnh (Command-Line Arguments):
-| Tham số | Giá trị mặc định | Giải thích |
-|---|:---:|---|
-| `--seed` | `42` | Random seed cho phân chia dữ liệu và mô hình |
-| `--test_size` | `0.3` | Tỷ lệ dữ liệu kiểm thử (30%) |
-| `--bagging_t` | `50` | Số lượng cây quyết định trong Bagging |
-| `--adaboost_t` | `100` | Số lượng weak learners trong AdaBoost SAMME |
-| `--stacking_k` | `5` | Số fold cho K-Fold Out-of-Fold (OOF) trong Stacking |
-| `--repeats` | `10` | Số lần lặp phân chia ngẫu nhiên (`0` để bỏ qua) |
-| `--fig_dir` | `figs` | Thư mục lưu trữ biểu đồ |
-| `--no_plots` | `False` | Bỏ qua bước vẽ biểu đồ (chỉ in log terminal) |
+### Quy ước 6 tham số dòng lệnh (Command-Line Arguments):
+| Tham số | Bắt buộc | Mặc định | Ràng buộc giá trị & Giải thích |
+|---|:---:|:---:|---|
+| `--method` | **Có** | - | `bagging` \| `boosting` \| `stacking` |
+| `--base_model` | Không | Tùy method | `dt` \| `knn` \| `svm` \| `lr`.<br>• **Bagging:** Nhận 1 model (mặc định: `dt`).<br>• **Boosting:** Chỉ hỗ trợ `dt` (Decision Stump max_depth=1).<br>• **Stacking:** Nhận nhiều models (mặc định: `dt,knn,svm`). |
+| `--seed` | Không | `42` | `int >= 0`. Random seed phân chia dữ liệu và khởi tạo mô hình |
+| `--test_size` | Không | `0.3` | `0.0 < float < 1.0`. Tỷ lệ tập kiểm thử |
+| `--n_estimators` | Không | 50 (bag) / 100 (boost) | `int >= 1`. Áp dụng cho **bagging** và **boosting**. *Báo lỗi nếu truyền cho stacking.* |
+| `--learning_rate` | Không | 1.0 (boost) | `float > 0`. Tốc độ học AdaBoost. *Báo lỗi nếu truyền cho bagging/stacking.* |
 
-#### Ví dụ các câu lệnh tùy biến:
+> **Quy tắc kiểm tra ràng buộc:** Các argument không áp dụng cho phương pháp được chọn sẽ được bỏ qua khi không truyền, và **báo lỗi tường minh** nếu người dùng truyền vào (ví dụ truyền `--n_estimators` khi chạy Stacking, hoặc truyền `--learning_rate` khi chạy Bagging).
+
+#### Ví dụ các câu lệnh chạy thực nghiệm:
 ```bash
-# Chạy nhanh với số lượng mô hình nhỏ và 3 lần lặp:
-python train.py --bagging_t 25 --adaboost_t 50 --repeats 3
+# 1. Chạy Bagging với Decision Tree (mặc định):
+python train.py --method bagging
 
-# Chỉ chạy thực nghiệm chính, bỏ qua bước lặp 10 lần để lấy kết quả tức thì:
-python train.py --repeats 0
+# 2. Chạy Bagging với KNN và 30 estimators:
+python train.py --method bagging --base_model knn --n_estimators 30
 
-# Chạy kiểm thử terminal thuần, không ghi đè biểu đồ ra ổ đĩa:
-python train.py --no_plots
+# 3. Chạy Boosting (AdaBoost) với 50 stump và learning_rate 0.8:
+python train.py --method boosting --n_estimators 50 --learning_rate 0.8
+
+# 4. Chạy Stacking với 3 mô hình cơ sở (dt, knn, svm) và Meta-model Logistic Regression (cv=5):
+python train.py --method stacking
+
+# 5. Chạy Stacking tùy biến mô hình cơ sở:
+python train.py --method stacking --base_model dt,knn,lr --test_size 0.25 --seed 123
 ```
 
 ---
