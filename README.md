@@ -69,7 +69,7 @@ python train.py --help
 ### Quy ước 6 tham số dòng lệnh (Command-Line Arguments):
 | Tham số | Bắt buộc | Mặc định | Ràng buộc giá trị & Giải thích |
 |---|:---:|:---:|---|
-| `--method` | **Có** | - | `bagging` \| `boosting` \| `stacking` |
+| `--method` | **Có** | - | `bagging` \| `boosting` \| `stacking` \| `all` (so sánh toàn bộ) |
 | `--base_model` | Không | Tùy method | `dt` \| `knn` \| `svm` \| `lr`.<br>• **Bagging:** Nhận 1 model (mặc định: `dt`).<br>• **Boosting:** Chỉ hỗ trợ `dt` (Decision Stump max_depth=1).<br>• **Stacking:** Nhận nhiều models (mặc định: `dt,knn,svm`). |
 | `--seed` | Không | `42` | `int >= 0`. Random seed phân chia dữ liệu và khởi tạo mô hình |
 | `--test_size` | Không | `0.3` | `0.0 < float < 1.0`. Tỷ lệ tập kiểm thử |
@@ -80,20 +80,56 @@ python train.py --help
 
 #### Ví dụ các câu lệnh chạy thực nghiệm:
 ```bash
-# 1. Chạy Bagging với Decision Tree (mặc định):
+# 1. Chạy so sánh toàn bộ các mô hình và xuất bộ 3 biểu đồ phân tích:
+python train.py --method all
+
+# 2. Chạy Bagging với Decision Tree (mặc định 50 estimators):
 python train.py --method bagging
 
-# 2. Chạy Bagging với KNN và 30 estimators:
+# 3. Chạy Bagging với KNN và 30 estimators:
 python train.py --method bagging --base_model knn --n_estimators 30
 
-# 3. Chạy Boosting (AdaBoost) với 50 stump và learning_rate 0.8:
-python train.py --method boosting --n_estimators 50 --learning_rate 0.8
+# 4. Chạy Boosting (AdaBoost) với 100 stump và learning_rate 1.0:
+python train.py --method boosting --n_estimators 100 --learning_rate 1.0
 
-# 4. Chạy Stacking với 3 mô hình cơ sở (dt, knn, svm) và Meta-model Logistic Regression (cv=5):
+# 5. Chạy Stacking với 3 mô hình cơ sở (dt, knn, svm) và Meta-model Logistic Regression (cv=5):
 python train.py --method stacking
 
-# 5. Chạy Stacking tùy biến mô hình cơ sở:
+# 6. Chạy Stacking tùy biến mô hình cơ sở:
 python train.py --method stacking --base_model dt,knn,lr --test_size 0.25 --seed 123
+```
+
+### Định dạng Terminal Log chuẩn hóa (5 Phần)
+Terminal log được định dạng gọn gàng, súc tích và chỉ hiển thị các tham số tương ứng với phương pháp đang chạy:
+```text
+==================================================
+ ENSEMBLE LEARNING | TRAINING
+==================================================
+ Method       : Boosting (AdaBoost SAMME)
+ Base Model   : Decision Tree (Stump, max_depth=1)
+ Dataset      : Scikit-Learn Digits (0-9)
+ Seed         : 42
+ Test Size    : 0.3
+ N Estimators : 100
+ Learning Rate: 1.0
+--------------------------------------------------
+[INFO] Dataset loaded: 1797 samples, 64 features (10 classes: 0..9)
+[INFO] Train: 1257 | Test: 540
+[INFO] Initializing AdaBoost (SAMME, 100 weak learners, lr=1.0)...
+[TRAIN] Training started...
+[TRAIN] Iterating weak learners: 1/100 (1%)
+[TRAIN] Iterating weak learners: 20/100 (20%)
+[TRAIN] Iterating weak learners: 40/100 (40%)
+[TRAIN] Iterating weak learners: 60/100 (60%)
+[TRAIN] Iterating weak learners: 80/100 (80%)
+[TRAIN] Iterating weak learners: 100/100 (100%)
+[DONE] Training completed in 0.50s
+
+[EVAL] Accuracy      : 0.8167 (81.67%)
+[EVAL] Training Time : 0.50s
+
+[SAVE] figs/confusion.png
+==================================================
 ```
 
 ---
