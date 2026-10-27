@@ -127,8 +127,6 @@ Terminal log được định dạng gọn gàng, súc tích và chỉ hiển th
 
 [EVAL] Accuracy      : 0.8167 (81.67%)
 [EVAL] Training Time : 0.50s
-
-[SAVE] figs/confusion.png
 ==================================================
 ```
 
