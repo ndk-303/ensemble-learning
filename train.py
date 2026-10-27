@@ -28,9 +28,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
-    confusion_matrix,
 )
-from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, StackingClassifier
 
 from src.methods import Bagging, AdaBoost, Stacking
 from src.data import load_data, build_model, get_base_models, SUPPORTED_MODELS
@@ -42,7 +40,6 @@ from src.utils import (
     log_error,
     log_eval,
     log_save,
-    format_confusion_matrix,
     print_table,
     save_single_confusion,
     save_visualizations,
@@ -254,11 +251,6 @@ def train_single_method(args):
         train_time = time.perf_counter() - t0
         log_done(f"Training completed in {train_time:.2f}s")
 
-        # Benchmark Scikit-Learn
-        sk_base = build_model(args.base_model, mode="bagging", seed=args.seed)
-        sk_model = BaggingClassifier(estimator=sk_base, n_estimators=args.n_estimators, random_state=args.seed)
-        sk_model.fit(Xtr, ytr)
-
     elif method == "boosting":
         log_info(f"Initializing AdaBoost (SAMME, {args.n_estimators} weak learners, lr={args.learning_rate})...")
         log_train("Training started...")
@@ -282,16 +274,6 @@ def train_single_method(args):
         train_time = time.perf_counter() - t0
         log_done(f"Training completed in {train_time:.2f}s")
 
-        # Benchmark Scikit-Learn
-        sk_base = build_model("dt", mode="boosting", seed=args.seed)
-        sk_model = AdaBoostClassifier(
-            estimator=sk_base,
-            n_estimators=args.n_estimators,
-            learning_rate=args.learning_rate,
-            random_state=args.seed,
-        )
-        sk_model.fit(Xtr, ytr)
-
     elif method == "stacking":
         log_info("Initializing StackingClassifier...")
         log_train("Training started...")
@@ -313,36 +295,22 @@ def train_single_method(args):
         train_time = time.perf_counter() - t0
         log_done(f"Training completed in {train_time:.2f}s")
 
-        # Benchmark Scikit-Learn
-        sk_estimators = [(f"{m}_{i}", build_model(m, mode="stacking", seed=args.seed)) for i, m in enumerate(args.parsed_models)]
-        sk_model = StackingClassifier(estimators=sk_estimators, final_estimator=build_model("lr", seed=args.seed), cv=5)
-        sk_model.fit(Xtr, ytr)
-
     # ==================================================
     # 4. EVALUATION
     # ==================================================
     print()
     y_pred = model.predict(Xte)
-    sk_pred = sk_model.predict(Xte)
 
     acc = accuracy_score(yte, y_pred)
     prec = precision_score(yte, y_pred, average="macro", zero_division=0)
     rec = recall_score(yte, y_pred, average="macro", zero_division=0)
     f1 = f1_score(yte, y_pred, average="macro", zero_division=0)
-    sk_acc = accuracy_score(yte, sk_pred)
-    cm = confusion_matrix(yte, y_pred, labels=classes)
 
     log_eval(f"Accuracy      : {acc:.4f}")
     log_eval(f"Precision     : {prec:.4f} (macro)")
     log_eval(f"Recall        : {rec:.4f} (macro)")
     log_eval(f"F1-Score      : {f1:.4f} (macro)")
     log_eval(f"Training Time : {train_time:.2f}s")
-    log_eval(f"Confusion Matrix:")
-    print(format_confusion_matrix(cm, classes))
-
-    diff = abs(acc - sk_acc)
-    match_status = "KHOP 100%" if diff < 1e-5 else ("TUONG DUONG" if diff < 0.01 else "LECH")
-    log_eval(f"Benchmark : Custom Acc: {acc:.4f} | Sklearn Acc: {sk_acc:.4f} ({match_status})")
 
     # ==================================================
     # 5. ARTIFACTS
@@ -453,32 +421,6 @@ def run_all(args):
         headers=["Mo hinh", "Train Acc", "Test Acc", "Precision", "Recall", "F1-Score"],
         rows=eval_rows,
         alignments=["<", ">", ">", ">", ">", ">"],
-    )
-
-    # Benchmark Sklearn
-    log_eval("Benchmark Scikit-Learn:")
-    sk_models = {
-        "KNN (k=5)": build_model("knn", seed=args.seed),
-        "Logistic Regression": build_model("lr", seed=args.seed),
-        bag_name: BaggingClassifier(estimator=build_model("dt", mode="bagging", seed=args.seed), n_estimators=bag_t, random_state=args.seed),
-        ada_name: AdaBoostClassifier(estimator=build_model("dt", mode="boosting", seed=args.seed), n_estimators=ada_t, learning_rate=ada_lr, random_state=args.seed),
-        stk_name: StackingClassifier(
-            estimators=[("dt", build_model("dt", mode="stacking", seed=args.seed)), ("knn", build_model("knn", seed=args.seed)), ("svm", build_model("svm", seed=args.seed))],
-            final_estimator=meta_est, cv=5
-        ),
-    }
-    bench_rows = []
-    for name, sk_m in sk_models.items():
-        sk_acc = accuracy_score(yte, sk_m.fit(Xtr, ytr).predict(Xte))
-        self_acc = res[name][1]
-        diff = abs(self_acc - sk_acc)
-        status = "KHOP 100%" if diff < 1e-5 else ("TUONG DUONG" if diff < 0.01 else "LECH")
-        bench_rows.append([name, f"{self_acc:.4f}", f"{sk_acc:.4f}", f"{diff:+.4f}", status])
-
-    print_table(
-        headers=["Phuong phap", "Tu cai dat", "Scikit-Learn", "Chenh lech", "Trang thai"],
-        rows=bench_rows,
-        alignments=["<", ">", ">", ">", "^"],
     )
 
     # ==================================================
