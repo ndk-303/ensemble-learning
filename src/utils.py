@@ -1,9 +1,8 @@
 """
-Module tien ich: Dinh dang log chuan ML, in bang ASCII va xuat bieu do truc quan hoa.
+Module tien ich: Dinh dang terminal log chuan ML, in bang ASCII va xuat bieu do truc quan hoa.
 """
 import os
 import sys
-from datetime import datetime
 import numpy as np
 
 # Dam bao tuong thich ma hoa console tren Windows
@@ -19,10 +18,56 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay
 
 
+def log_info(msg):
+    """Xuat log muc INFO."""
+    print(f"[INFO] {msg}")
+
+
+def log_train(msg):
+    """Xuat log muc TRAIN."""
+    print(f"[TRAIN] {msg}")
+
+
+def log_done(msg):
+    """Xuat log muc DONE."""
+    print(f"[DONE] {msg}")
+
+
+def log_warn(msg):
+    """Xuat log muc WARN."""
+    print(f"[WARN] {msg}")
+
+
+def log_error(msg):
+    """Xuat log muc ERROR."""
+    print(f"[ERROR] {msg}")
+
+
+def log_eval(msg):
+    """Xuat log muc EVAL."""
+    print(f"[EVAL] {msg}")
+
+
+def log_save(path):
+    """Xuat log muc SAVE file artifact."""
+    print(f"[SAVE] {path}")
+
+
 def log(tag, msg):
-    """Xuat log co dinh dang thoi gian va nhan tag chuan ML."""
-    now = datetime.now().strftime("%H:%M:%S")
-    print(f"[{now}] [{tag:<7s}] {msg}")
+    """Tuong thich nguoc."""
+    print(f"[{tag}] {msg}")
+
+
+def format_confusion_matrix(cm, classes=None):
+    """Dinh dang ma tran nham lan thanh khoi van ban gon gang, can hang cot deu dep."""
+    if classes is None:
+        classes = list(range(len(cm)))
+    header = "       " + " ".join([f"{c:>4d}" for c in classes])
+    lines = [header]
+    for idx, c in enumerate(classes):
+        row_str = " ".join([f"{cm[idx, j]:>4d}" for j in range(len(classes))])
+        lines.append(f"  {c:>3d} [ {row_str} ]")
+    return "\n".join(lines)
 
 
 def print_table(headers, rows, alignments=None):
@@ -61,6 +106,18 @@ def print_table(headers, rows, alignments=None):
     print(sep)
 
 
+def save_single_confusion(yte, y_pred, title, path="figs/confusion.png"):
+    """Luu 1 ma tran nham lan duy nhat cho mo hinh don."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ConfusionMatrixDisplay.from_predictions(yte, y_pred, cmap="Blues", ax=ax)
+    ax.set_title(title, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path.replace("\\", "/")
+
+
 def save_visualizations(
     res,
     ytr,
@@ -75,9 +132,9 @@ def save_visualizations(
     stk_name,
     fig_dir="figs",
 ):
-    """Xuat 3 bieu do tinh gon cho thi nghiem don: acc_vs_T, compare, confusion."""
+    """Xuat 3 bieu do tinh gon cho thi nghiem so sanh: acc_vs_T, compare, confusion."""
     os.makedirs(fig_dir, exist_ok=True)
-    log("VISUAL", "Dang xuat cac bieu do truc quan hoa vao thu muc figs/...")
+    saved_paths = []
 
     # Bieu do 1: Accuracy theo T
     T_grid = np.arange(1, adaboost_t + 1)
@@ -97,10 +154,10 @@ def save_visualizations(
     ax.grid(alpha=0.3)
     ax.set_title("Do chinh xac theo so luong mo hinh trong Ensemble (T) - Digits")
     fig.tight_layout()
-    p1 = os.path.join(fig_dir, "acc_vs_T.png")
+    p1 = os.path.join(fig_dir, "acc_vs_T.png").replace("\\", "/")
     fig.savefig(p1, dpi=150)
     plt.close(fig)
-    log("VISUAL", f"  -> Da luu: {p1}")
+    saved_paths.append(p1)
 
     # Bieu do 2: So sanh Test Accuracy
     fig, ax = plt.subplots(figsize=(8.5, 4.5))
@@ -118,20 +175,22 @@ def save_visualizations(
     ax.set_xlabel("Test Accuracy")
     ax.set_title("So sanh do chinh xac cac mo hinh (Scikit-Learn Digits 0-9)")
     fig.tight_layout()
-    p2 = os.path.join(fig_dir, "compare.png")
+    p2 = os.path.join(fig_dir, "compare.png").replace("\\", "/")
     fig.savefig(p2, dpi=150)
     plt.close(fig)
-    log("VISUAL", f"  -> Da luu: {p2}")
+    saved_paths.append(p2)
 
     # Bieu do 3: Ma tran nham lan cua Stacking
     fig, ax = plt.subplots(figsize=(6, 5))
     ConfusionMatrixDisplay.from_predictions(yte, stk.predict(Xte), cmap="Blues", ax=ax)
     ax.set_title(f"Ma tran nham lan - Stacking Classifier (Acc: {res[stk_name][1]:.4f})", fontsize=10)
     fig.tight_layout()
-    p3 = os.path.join(fig_dir, "confusion.png")
+    p3 = os.path.join(fig_dir, "confusion.png").replace("\\", "/")
     fig.savefig(p3, dpi=150)
     plt.close(fig)
-    log("VISUAL", f"  -> Da luu: {p3}")
+    saved_paths.append(p3)
+
+    return saved_paths
 
 
 def save_stability_plot(names, means, stds, n, fig_dir="figs"):
@@ -153,4 +212,4 @@ def save_stability_plot(names, means, stds, n, fig_dir="figs"):
     p4 = os.path.join(fig_dir, "compare_repeated.png")
     fig.savefig(p4, dpi=150)
     plt.close(fig)
-    log("VISUAL", f"  -> Da luu: {p4}")
+    return p4

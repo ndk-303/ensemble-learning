@@ -25,7 +25,7 @@ class Bagging:
         self.estimators_ = []
         self.classes_ = None
 
-    def fit(self, X, y):
+    def fit(self, X, y, callback=None):
         """
         Huấn luyện T mô hình cơ sở trên T mẫu Bootstrap khác nhau.
         X: np.ndarray, kích thước (n, d)
@@ -47,6 +47,8 @@ class Bagging:
                 est.random_state = self.seed + i
             est.fit(X_boot, y_boot)
             self.estimators_.append(est)
+            if callback:
+                callback(i + 1, self.T)
 
         return self
 

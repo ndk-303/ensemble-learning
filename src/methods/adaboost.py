@@ -27,7 +27,7 @@ class AdaBoost:
         self.estimator_weights_ = []
         self.classes_ = None
 
-    def fit(self, X, y):
+    def fit(self, X, y, callback=None):
         """
         Huấn luyện tuần tự T mô hình weak learners với phân phối trọng số cập nhật liên tục (SAMME).
         X: np.ndarray, kích thước (n, d)
@@ -67,6 +67,8 @@ class AdaBoost:
                 if t == 0:
                     self.estimators_.append(est)
                     self.estimator_weights_.append(1.0)
+                if callback:
+                    callback(t + 1, self.T)
                 break
 
             # 5. Cập nhật trọng số mẫu theo cấp số nhân (SAMME):
@@ -76,6 +78,8 @@ class AdaBoost:
 
             self.estimators_.append(est)
             self.estimator_weights_.append(alpha)
+            if callback:
+                callback(t + 1, self.T)
 
         return self
 

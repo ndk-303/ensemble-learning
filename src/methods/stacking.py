@@ -43,7 +43,7 @@ class Stacking:
             p = model.predict(X)
             return p[:, np.newaxis]
 
-    def fit(self, X, y):
+    def fit(self, X, y, callback=None):
         """
         1. Tạo meta-features Z bằng K-Fold Out-of-fold.
         2. Huấn luyện Meta-Learner trên Z.
@@ -53,6 +53,8 @@ class Stacking:
         kf = KFold(n_splits=self.k, shuffle=True, random_state=self.seed)
         Z = None
 
+        if callback:
+            callback("phase_1")
         # 1. Cơ chế Out-Of-Fold (OOF) chống Overfitting và Data Leakage
         for train_idx, val_idx in kf.split(X, y):
             X_tr, y_tr = X[train_idx], y[train_idx]
@@ -71,10 +73,14 @@ class Stacking:
 
         self.meta_features_ = Z
 
+        if callback:
+            callback("phase_2")
         # 2. Huấn luyện Meta-Learner ở tầng 2 trên ma trận meta-features Z
         self.fitted_meta_ = clone(self.meta_estimator)
         self.fitted_meta_.fit(Z, y)
 
+        if callback:
+            callback("phase_3")
         # 3. Huấn luyện lại toàn bộ Base Learners trên toàn bộ tập train để phục vụ inference
         self.fitted_bases_ = []
         for base in self.base_estimators:
