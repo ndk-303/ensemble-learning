@@ -24,7 +24,6 @@ Dự án tập trung trình bày và cài đặt chuyên sâu các giải thuậ
 │   ├── compare_repeated.png     # Ket qua lap 10 lan ngau nhien (Mean ± Std)
 │   └── confusion.png            # Ma tran nham lan cua mo hinh xuat sac nhat (Stacking)
 ├── docs/                        # Tai lieu dac ta kien truc & thiet ke
-├── HUONG_DAN_CHAY_TAY_THUAT_TOAN_ENSEMBLE.md # So tay huong dan chay tay tung buoc (sinh vien)
 ├── README.md                    # Huong dan su dung & bao cao thuc nghiem
 └── requirements.txt             # Thu vien phu thuoc (numpy, matplotlib, scikit-learn)
 ```
