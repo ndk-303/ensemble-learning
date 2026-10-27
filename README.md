@@ -8,19 +8,25 @@ Dự án tập trung trình bày và cài đặt chuyên sâu các giải thuậ
 
 ```text
 .
-├── bagging.py          # Cài đặt Bagging: Bootstrap sampling + Majority voting (Đa lớp)
-├── adaboost.py         # Cài đặt AdaBoost: Trọng số mẫu lũy thừa + Thuật toán SAMME (Đa lớp)
-├── stacking.py         # Cài đặt Stacking: K-Fold Out-of-Fold (OOF) chống rò rỉ dữ liệu (Đa lớp)
-├── experiments.py      # Pipeline thực nghiệm Digits, đối chiếu với sklearn & vẽ biểu đồ
-├── main.py             # Điểm khởi chạy toàn bộ thí nghiệm
-├── requirements.txt    # Thư viện phụ thuộc (numpy, matplotlib, scikit-learn)
-├── .gitignore          # Cấu hình bỏ qua file rác, virtualenv
-└── figs/               # Biểu đồ và trực quan hóa kết quả
-    ├── acc_vs_T.png        # Độ chính xác theo số lượng mô hình T (1..100)
-    ├── boundary.png        # Ranh giới phân lớp 2D (PCA) của các mô hình trên 10 lớp số
-    ├── compare.png         # Biểu đồ so sánh Test Accuracy trên Digits
-    ├── compare_repeated.png# Kết quả lặp 10 lần ngẫu nhiên (Mean ± Std)
-    └── confusion.png       # Ma trận nhầm lẫn 10x10 & mẫu ảnh chữ số 8x8
+├── train.py                     # Entrypoint huan luyen & danh gia duy nhat (CLI Arguments)
+├── src/                         # Ma nguon module hoa
+│   ├── __init__.py              # Package init
+│   ├── data.py                  # Tai va phan chia tap Digits, khoi tao base models
+│   ├── utils.py                 # Logging chuan ML, in bang ASCII, xuat bieu do
+│   └── methods/                 # Cac phuong phap Ensemble tu cai dat
+│       ├── __init__.py          # Export Bagging, AdaBoost, Stacking
+│       ├── bagging.py           # Thuat toan Bagging: Bootstrap sampling + Majority voting
+│       ├── adaboost.py          # Thuat toan AdaBoost: SAMME da lop + trong so mau luy thua
+│       └── stacking.py          # Thuat toan Stacking: K-Fold Out-of-Fold (OOF) chong ro ri
+├── figs/                        # Bieu do ket qua truc quan hoa
+│   ├── acc_vs_T.png             # Do chinh xac theo so luong mo hinh T (1..100)
+│   ├── compare.png              # Bieu do so sanh Test Accuracy tren Digits
+│   ├── compare_repeated.png     # Ket qua lap 10 lan ngau nhien (Mean ± Std)
+│   └── confusion.png            # Ma tran nham lan cua mo hinh xuat sac nhat (Stacking)
+├── docs/                        # Tai lieu dac ta kien truc & thiet ke
+├── HUONG_DAN_CHAY_TAY_THUAT_TOAN_ENSEMBLE.md # So tay huong dan chay tay tung buoc (sinh vien)
+├── README.md                    # Huong dan su dung & bao cao thuc nghiem
+└── requirements.txt             # Thu vien phu thuoc (numpy, matplotlib, scikit-learn)
 ```
 
 ---
@@ -29,19 +35,19 @@ Dự án tập trung trình bày và cài đặt chuyên sâu các giải thuậ
 
 Các kỹ thuật học kết hợp được thiết kế và mở rộng cho bài toán 10 lớp:
 
-1. **Bagging ([`bagging.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/bagging.py)):**
+1. **Bagging ([`src/methods/bagging.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/src/methods/bagging.py)):**
    * **Bootstrap Sampling:** Lấy ngẫu nhiên $n$ mẫu có hoàn lại từ tập huấn luyện ban đầu.
    * **Đa dạng hóa:** Huấn luyện $T$ cây quyết định sâu độc lập trên các tập con mẫu khác nhau nhằm triệt tiêu phương sai (variance).
    * **Majority Voting:** Tổng hợp kết quả đa lớp bằng ma trận phiếu bầu $V(x, k) = \sum_{t=1}^T \mathbb{I}(h_t(x) == k)$ và chọn lớp có số phiếu cao nhất: $\hat{y} = \arg\max_k V(x, k)$.
    * **Staged Predict:** Cung cấp generator dự đoán tích lũy để theo dõi sự ổn định khi tăng dần số lượng cây $T$.
 
-2. **AdaBoost ([`adaboost.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/adaboost.py)):**
+2. **AdaBoost ([`src/methods/adaboost.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/src/methods/adaboost.py)):**
    * **Giải thuật SAMME đa lớp:** Khởi tạo $w_i = 1/n$.
    * **Hệ số tin cậy SAMME:** Với $K=10$ lớp, hệ số $\alpha_t = \ln\left(\frac{1 - \epsilon_t}{\epsilon_t}\right) + \ln(K - 1)$, cho phép mô hình yếu chỉ cần đạt độ chính xác $> 1/K = 10\%$ là đã có đóng góp tích cực.
    * **Cập nhật lũy thừa:** Tăng trọng số các mẫu bị phân lớp sai: $w_i \leftarrow w_i \exp(\alpha_t \cdot \mathbb{I}(y_i \neq h_t(x_i)))$.
    * **Dự đoán kết hợp:** $\hat{y} = \arg\max_k \sum_{t=1}^T \alpha_t \cdot \mathbb{I}(h_t(x) == k)$.
 
-3. **Stacking ([`stacking.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/stacking.py)):**
+3. **Stacking ([`src/methods/stacking.py`](file:///D:/Khoa%2015/TON%20DUC%20THANG/ML/MidTerm/src/methods/stacking.py)):**
    * **Chống rò rỉ dữ liệu (Out-of-fold):** Sử dụng K-Fold CV ($k=5$) trên tập huấn luyện để tạo ma trận đặc trưng mới ($Z \in \mathbb{R}^{n \times (M \times K)}$) dựa trên vector xác suất `predict_proba` từ $M$ mô hình cơ sở cho $K$ lớp.
    * **Đa dạng hóa cấu trúc:** Tầng 1 kết hợp 3 họ mô hình khác biệt (Cây quyết định, K-Nearest Neighbors, Hồi quy Logistic).
    * **Meta Learner:** Huấn luyện mô hình tầng 2 (Multinomial Logistic Regression) tối ưu hóa trọng số kết hợp.
@@ -55,9 +61,38 @@ Cài đặt thư viện:
 pip install -r requirements.txt
 ```
 
-Chạy toàn bộ thí nghiệm và lặp 10 lần:
+### Chạy mặc định toàn bộ thí nghiệm (kèm lặp 10 lần đánh giá độ ổn định):
 ```bash
-python main.py
+python train.py
+```
+
+### Xem hướng dẫn tất cả các đối số CLI:
+```bash
+python train.py --help
+```
+
+### Các tùy chọn dòng lệnh (Command-Line Arguments):
+| Tham số | Giá trị mặc định | Giải thích |
+|---|:---:|---|
+| `--seed` | `42` | Random seed cho phân chia dữ liệu và mô hình |
+| `--test_size` | `0.3` | Tỷ lệ dữ liệu kiểm thử (30%) |
+| `--bagging_t` | `50` | Số lượng cây quyết định trong Bagging |
+| `--adaboost_t` | `100` | Số lượng weak learners trong AdaBoost SAMME |
+| `--stacking_k` | `5` | Số fold cho K-Fold Out-of-Fold (OOF) trong Stacking |
+| `--repeats` | `10` | Số lần lặp phân chia ngẫu nhiên (`0` để bỏ qua) |
+| `--fig_dir` | `figs` | Thư mục lưu trữ biểu đồ |
+| `--no_plots` | `False` | Bỏ qua bước vẽ biểu đồ (chỉ in log terminal) |
+
+#### Ví dụ các câu lệnh tùy biến:
+```bash
+# Chạy nhanh với số lượng mô hình nhỏ và 3 lần lặp:
+python train.py --bagging_t 25 --adaboost_t 50 --repeats 3
+
+# Chỉ chạy thực nghiệm chính, bỏ qua bước lặp 10 lần để lấy kết quả tức thì:
+python train.py --repeats 0
+
+# Chạy kiểm thử terminal thuần, không ghi đè biểu đồ ra ổ đĩa:
+python train.py --no_plots
 ```
 
 ---
