@@ -34,7 +34,6 @@ from src.utils import (
     log_warn,
     log_error,
     log_eval,
-    log_save,
     print_table,
     save_single_confusion,
     save_visualizations,
@@ -310,7 +309,6 @@ def train_single_method(args):
         title=f"Confusion Matrix - {method.upper()} (Acc: {acc:.4f})",
         path="figs/confusion.png",
     )
-    log_save(cf_path)
     print("=" * 50)
 
 
@@ -427,8 +425,6 @@ def run_all(args):
         stk_name=stk_name,
         fig_dir="figs",
     )
-    for p in saved:
-        log_save(p)
     print("=" * 50)
 
 

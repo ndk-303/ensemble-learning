@@ -48,11 +48,6 @@ def log_eval(msg):
     print(f"[EVAL] {msg}")
 
 
-def log_save(path):
-    """Xuat log muc SAVE file artifact."""
-    print(f"[SAVE] {path}")
-
-
 def log(tag, msg):
     """Tuong thich nguoc."""
     print(f"[{tag}] {msg}")
