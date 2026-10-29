@@ -1,5 +1,7 @@
 # Thiết Kế Kiến Trúc: Tái Cấu Trúc Thư Mục Dự Án & File Huấn Luyện `train.py`
 
+> Tài liệu lịch sử của lần tái cấu trúc 2026-10-27. Giao diện CLI và thiết kế thực nghiệm hiện hành được mô tả trong `README.md`.
+
 - **Ngày tạo:** 2026-10-27
 - **Tác giả:** Antigravity & User
 - **Trạng thái:** Đã phê duyệt (Approved)

@@ -132,23 +132,23 @@ def save_visualizations(
     saved_paths = []
 
     # Bieu do 1: Accuracy theo T
-    T_grid = np.arange(1, adaboost_t + 1)
     ada_tr = [accuracy_score(ytr, p) for p in ada.staged_predict(Xtr)]
     ada_te = [accuracy_score(yte, p) for p in ada.staged_predict(Xte)]
     bag_te = [accuracy_score(yte, p) for p in bag.staged_predict(Xte)]
+    T_grid = np.arange(1, len(ada_te) + 1)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    ax.plot(T_grid, ada_tr, "--", c="tab:red", label="AdaBoost (SAMME) - Train")
-    ax.plot(T_grid, ada_te, c="tab:red", lw=1.8, label="AdaBoost (SAMME) - Test")
-    ax.plot(np.arange(1, bagging_t + 1), bag_te, c="tab:blue", lw=1.8, label="Bagging - Test")
-    if "Stump (1 tang)" in res:
-        ax.axhline(res["Stump (1 tang)"][1], c="gray", ls=":", label="Stump don - Test")
-    ax.set_xlabel("So luong mo hinh (T)")
+    ax.plot(T_grid, ada_tr, "--", c="tab:red", label="AdaBoost (Train)")
+    ax.plot(T_grid, ada_te, c="tab:red", lw=1.8, label="AdaBoost (Test)")
+    ax.plot(np.arange(1, len(bag_te) + 1), bag_te, c="tab:blue", lw=1.8, label="Bagging (Test)")
+    if "Stump" in res:
+        ax.axhline(res["Stump"][1], c="gray", ls=":", label="Stump (Test)")
+    ax.set_xlabel("Number of Estimators (T)")
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0.15, 1.02)
     ax.legend()
     ax.grid(alpha=0.3)
-    ax.set_title("Do chinh xac theo so luong mo hinh trong Ensemble (T) - Digits")
+    ax.set_title("Accuracy vs. Number of Estimators")
     fig.tight_layout()
     p1 = os.path.join(fig_dir, "acc_vs_T.png").replace("\\", "/")
     fig.savefig(p1, dpi=150)
@@ -166,10 +166,10 @@ def save_visualizations(
     bars = ax.barh(names_list, test_scores, color=colors)
     for b, score in zip(bars, test_scores):
         ax.text(score + 0.005, b.get_y() + b.get_height() / 2, f"{score:.4f}", va="center", fontsize=9)
-    ax.set_xlim(0.15, 1.05)
+    ax.set_xlim(0, 1.05)
     ax.invert_yaxis()
     ax.set_xlabel("Test Accuracy")
-    ax.set_title("So sanh do chinh xac cac mo hinh (Scikit-Learn Digits 0-9)")
+    ax.set_title("Model Accuracy Comparison")
     fig.tight_layout()
     p2 = os.path.join(fig_dir, "compare.png").replace("\\", "/")
     fig.savefig(p2, dpi=150)
@@ -179,7 +179,7 @@ def save_visualizations(
     # Bieu do 3: Ma tran nham lan cua Stacking
     fig, ax = plt.subplots(figsize=(6, 5))
     ConfusionMatrixDisplay.from_predictions(yte, stk.predict(Xte), cmap="Blues", ax=ax)
-    ax.set_title(f"Ma tran nham lan - Stacking Classifier (Acc: {res[stk_name][1]:.4f})", fontsize=10)
+    ax.set_title(f"Confusion Matrix ({stk_name})", fontsize=10)
     fig.tight_layout()
     p3 = os.path.join(fig_dir, "confusion.png").replace("\\", "/")
     fig.savefig(p3, dpi=150)
@@ -200,12 +200,12 @@ def save_stability_plot(names, means, stds, n, fig_dir="figs"):
     ax.barh(names, means, xerr=stds, color=colors, capsize=3)
     for i, (m, s_) in enumerate(zip(means, stds)):
         ax.text(m + s_ + 0.005, i, f"{m:.4f}", va="center", fontsize=9)
-    ax.set_xlim(0.15, 1.05)
+    ax.set_xlim(0, 1.05)
     ax.invert_yaxis()
-    ax.set_xlabel(f"Test Accuracy (Mean +/- Std qua {n} lan)")
-    ax.set_title("Do on dinh cua cac mo hinh qua cac lan phan chia ngau nhien (Digits)")
+    ax.set_xlabel("Test Accuracy")
+    ax.set_title(f"Model Stability ({n} Repeats)")
     fig.tight_layout()
-    p4 = os.path.join(fig_dir, "compare_repeated.png")
+    p4 = os.path.join(fig_dir, "compare_repeated.png").replace("\\", "/")
     fig.savefig(p4, dpi=150)
     plt.close(fig)
     return p4

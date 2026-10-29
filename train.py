@@ -1,20 +1,9 @@
-"""
-Script huan luyen va danh gia Ensemble Learning tren Scikit-Learn Digits.
-Ho tro dung 6 tham so dong lenh (argparse):
-  --method:        bagging | boosting | stacking | all (Bat buoc)
-  --base_model:    dt | knn | svm | lr (Stacking ho tro nhieu model cach nhau boi dau phay)
-  --seed:          int >= 0
-  --test_size:     0.0 < float < 1.0
-  --n_estimators:  int >= 1 (ap dung cho bagging, boosting, all)
-  --learning_rate: float > 0 (ap dung cho boosting, all)
-"""
 import os
 import sys
 import time
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", message="The `probability` parameter was deprecated", category=FutureWarning)
 import argparse
-import numpy as np
 
 # Dam bao tuong thich ma hoa console tren Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,34 +15,33 @@ if hasattr(sys.stdout, "reconfigure"):
 from sklearn.metrics import accuracy_score
 
 from src.methods import Bagging, AdaBoost, Stacking
-from src.data import load_data, build_model, get_base_models, SUPPORTED_MODELS
+from src.experiments import MODEL_ORDER, evaluate_split, evaluate_references, summarize_scores
+from src.data import load_data, build_model, SUPPORTED_MODELS
 from src.utils import (
     log_info,
     log_train,
     log_done,
-    log_warn,
-    log_error,
-    log_eval,
     print_table,
     save_single_confusion,
     save_visualizations,
+    save_stability_plot,
 )
 
 
 def parse_args():
-    """Khoi tao argparse voi dung 6 tham so va kiem tra tinh hop le."""
+    """Khoi tao argparse va kiem tra tinh hop le."""
     parser = argparse.ArgumentParser(
-        description="Ensemble Learning (Bagging, AdaBoost SAMME, Stacking) tren Scikit-Learn Digits",
+        description="Ensemble Learning (Bagging, AdaBoost SAMME, Stacking) on Digits",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # 1. --method (Bat buoc)
+    # 1. --method (Required)
     parser.add_argument(
         "--method",
         type=str,
         required=True,
         choices=["bagging", "boosting", "stacking", "all"],
-        help="Phuong phap Ensemble: bagging | boosting | stacking | all",
+        help="Ensemble method: bagging | boosting | stacking | all",
     )
 
     # 2. --base_model
@@ -61,7 +49,7 @@ def parse_args():
         "--base_model",
         type=str,
         default=None,
-        help="Base model: dt, knn, svm, lr. (Bagging: 1 model; Boosting: chi ho tro dt; Stacking: danh sach vi du dt,knn,svm)",
+        help="Base model: dt, knn, svm, lr (default: dt for bagging/boosting; dt,knn,lr for stacking/all)",
     )
 
     # 3. --seed
@@ -69,7 +57,7 @@ def parse_args():
         "--seed",
         type=int,
         default=42,
-        help="Random seed cho phan chia du lieu va khoi tao mo hinh (int >= 0)",
+        help="Random seed",
     )
 
     # 4. --test_size
@@ -77,7 +65,7 @@ def parse_args():
         "--test_size",
         type=float,
         default=0.3,
-        help="Ty le tap kiem thu test_size (0.0 < float < 1.0)",
+        help="Test size ratio (0.0 < float < 1.0)",
     )
 
     # 5. --n_estimators
@@ -85,7 +73,7 @@ def parse_args():
         "--n_estimators",
         type=int,
         default=None,
-        help="So luong estimators (int >= 1, ap dung cho bagging va boosting)",
+        help="Number of estimators (bagging/boosting)",
     )
 
     # 6. --learning_rate
@@ -93,50 +81,61 @@ def parse_args():
         "--learning_rate",
         type=float,
         default=None,
-        help="Toc do hoc learning_rate (float > 0, chi ap dung cho boosting)",
+        help="Learning rate (boosting)",
     )
+    parser.add_argument("--repeats", type=int, default=10,
+                        help="Number of repeated splits for --method all")
+    parser.add_argument("--no_plots", action="store_true", help="Do not save plots to disk")
+    parser.add_argument("--fig_dir", default="figs", help="Directory for plots")
 
     args = parser.parse_args()
 
-    # --- RANG BUOC GIA TRI CHUNG ---
+    # --- VALIDATION ---
     if args.seed < 0:
-        parser.error("Tham so --seed phai la so nguyen >= 0.")
+        parser.error("--seed must be >= 0.")
 
     if not (0.0 < args.test_size < 1.0):
-        parser.error("Tham so --test_size phai thoa man 0.0 < test_size < 1.0.")
+        parser.error("--test_size must be between 0.0 and 1.0.")
 
     if args.n_estimators is not None and args.n_estimators < 1:
-        parser.error("Tham so --n_estimators phai la so nguyen >= 1.")
+        parser.error("--n_estimators must be >= 1.")
 
     if args.learning_rate is not None and args.learning_rate <= 0:
-        parser.error("Tham so --learning_rate phai la so thuc > 0.")
+        parser.error("--learning_rate must be > 0.")
+    if args.repeats < 1:
+        parser.error("--repeats must be >= 1.")
 
-    # --- RANG BUOC THEO TUNG METHOD ---
+    # --- METHOD-SPECIFIC RULES ---
     method = args.method.lower()
 
     if method == "all":
-        pass
+        if args.base_model is None:
+            args.parsed_models = ["dt", "knn", "lr"]
+        else:
+            args.parsed_models = [m.strip().lower() for m in args.base_model.split(",") if m.strip()]
+            if not args.parsed_models or any(m not in SUPPORTED_MODELS for m in args.parsed_models):
+                parser.error("--base_model for 'all' must be chosen from: dt, knn, svm, lr.")
 
     elif method == "stacking":
         if args.n_estimators is not None:
-            parser.error("Tham so --n_estimators khong ap dung cho phuong phap 'stacking'.")
+            parser.error("--n_estimators is not applicable to stacking.")
         if args.learning_rate is not None:
-            parser.error("Tham so --learning_rate khong ap dung cho phuong phap 'stacking'.")
+            parser.error("--learning_rate is not applicable to stacking.")
 
         if args.base_model is None:
-            args.base_model = "dt,knn,svm"
+            args.base_model = "dt,knn,lr"
 
         model_tokens = [m.strip().lower() for m in args.base_model.split(",") if m.strip()]
         if not model_tokens:
-            parser.error("Phuong phap 'stacking' can it nhat 1 base model hop le.")
+            parser.error("Stacking requires at least 1 valid base model.")
         for m in model_tokens:
             if m not in SUPPORTED_MODELS:
-                parser.error(f"Base model '{m}' khong hop le. Cac model ho tro: {', '.join(SUPPORTED_MODELS)}.")
+                parser.error(f"Base model '{m}' is not supported. Supported: {', '.join(SUPPORTED_MODELS)}.")
         args.parsed_models = model_tokens
 
     elif method == "bagging":
         if args.learning_rate is not None:
-            parser.error("Tham so --learning_rate khong ap dung cho phuong phap 'bagging'.")
+            parser.error("--learning_rate is not applicable to bagging.")
 
         if args.n_estimators is None:
             args.n_estimators = 50
@@ -146,9 +145,9 @@ def parse_args():
         else:
             args.base_model = args.base_model.strip().lower()
             if "," in args.base_model:
-                parser.error("Phuong phap 'bagging' chi nhan 1 base model duy nhat, vi du: --base_model dt")
+                parser.error("Bagging only accepts a single base model, e.g. --base_model dt")
             if args.base_model not in SUPPORTED_MODELS:
-                parser.error(f"Base model '{args.base_model}' khong hop le. Cac model ho tro: {', '.join(SUPPORTED_MODELS)}.")
+                parser.error(f"Base model '{args.base_model}' is not supported. Supported: {', '.join(SUPPORTED_MODELS)}.")
 
     elif method == "boosting":
         if args.n_estimators is None:
@@ -162,17 +161,17 @@ def parse_args():
         else:
             args.base_model = args.base_model.strip().lower()
             if args.base_model != "dt":
-                parser.error("Phuong phap 'boosting' (AdaBoost) chi ho tro base model 'dt' (Decision Stump voi max_depth=1).")
+                parser.error("Boosting (AdaBoost) only supports base model 'dt' (Decision Stump).")
 
     return args
 
 
 def get_base_model_label(code):
-    """Chuyen doi ma model thanh ten hien thi de doc."""
+    """Map model code to clean display name."""
     mapping = {
         "dt": "Decision Tree",
-        "knn": "K-Nearest Neighbors (k=5)",
-        "svm": "Support Vector Machine (RBF)",
+        "knn": "KNN",
+        "svm": "SVM",
         "lr": "Logistic Regression",
     }
     return mapping.get(code.lower(), code.upper())
@@ -183,52 +182,41 @@ def train_single_method(args):
     method = args.method.lower()
 
     # ==================================================
-    # 1. CONFIGURATION (Chi hien thi argument ap dung cho method hien tai)
+    # 1. CONFIGURATION
     # ==================================================
-    print("=" * 50)
-    print(" ENSEMBLE LEARNING | TRAINING")
-    print("=" * 50)
+    print("=" * 60)
+    print(f" ENSEMBLE TRAINING: {method.upper()}")
+    print("=" * 60)
+    print(f" Method       : {method.title()}")
 
     if method == "bagging":
-        print(f" Method       : Bagging")
         print(f" Base Model   : {get_base_model_label(args.base_model)}")
-        print(f" Dataset      : Scikit-Learn Digits (0-9)")
-        print(f" Seed         : {args.seed}")
-        print(f" Test Size    : {args.test_size}")
         print(f" N Estimators : {args.n_estimators}")
     elif method == "boosting":
-        print(f" Method       : Boosting (AdaBoost SAMME)")
-        print(f" Base Model   : Decision Tree (Stump, max_depth=1)")
-        print(f" Dataset      : Scikit-Learn Digits (0-9)")
-        print(f" Seed         : {args.seed}")
-        print(f" Test Size    : {args.test_size}")
+        print(f" Base Model   : Decision Tree (stump)")
         print(f" N Estimators : {args.n_estimators}")
         print(f" Learning Rate: {args.learning_rate}")
     elif method == "stacking":
         base_labels = ", ".join([get_base_model_label(m) for m in args.parsed_models])
-        print(f" Method       : Stacking")
         print(f" Base Models  : {base_labels}")
-        print(f" Meta-Model   : Logistic Regression (max_iter=2000)")
-        print(f" CV Folds     : 5 (Out-of-Fold)")
-        print(f" Dataset      : Scikit-Learn Digits (0-9)")
-        print(f" Seed         : {args.seed}")
-        print(f" Test Size    : {args.test_size}")
-    print("-" * 50)
+        print(f" Meta-Model   : Logistic Regression")
+        print(f" CV           : 5-Fold OOF")
+
+    print(f" Seed         : {args.seed}")
+    print(f" Test Size    : {args.test_size}")
+    print("=" * 60)
 
     # ==================================================
     # 2. DATASET
     # ==================================================
     Xtr, ytr, Xte, yte, _ = load_data(test_size=args.test_size, seed=args.seed)
-    classes = np.unique(ytr)
-    n_classes = len(classes)
-    log_info(f"Dataset loaded: {len(ytr)+len(yte)} samples, {Xtr.shape[1]} features (10 classes: 0..9)")
-    log_info(f"Train: {len(ytr)} | Test: {len(yte)}")
+    log_info(f"Dataset: {len(ytr)+len(yte)} samples, {Xtr.shape[1]} features (Train: {len(ytr)} | Test: {len(yte)})")
 
     # ==================================================
     # 3. TRAINING
     # ==================================================
     if method == "bagging":
-        log_info(f"Initializing BaggingClassifier ({args.n_estimators} estimators)...")
+        log_info(f"Initializing Bagging ({args.n_estimators} estimators)...")
         log_train("Training started...")
 
         def bagging_callback(curr, total):
@@ -246,7 +234,7 @@ def train_single_method(args):
         log_done(f"Training completed in {train_time:.2f}s")
 
     elif method == "boosting":
-        log_info(f"Initializing AdaBoost (SAMME, {args.n_estimators} weak learners, lr={args.learning_rate})...")
+        log_info(f"Initializing AdaBoost ({args.n_estimators} estimators, lr={args.learning_rate})...")
         log_train("Training started...")
 
         def boosting_callback(curr, total):
@@ -269,16 +257,16 @@ def train_single_method(args):
         log_done(f"Training completed in {train_time:.2f}s")
 
     elif method == "stacking":
-        log_info("Initializing StackingClassifier...")
+        log_info("Initializing Stacking...")
         log_train("Training started...")
 
         def stacking_callback(phase):
             if phase == "phase_1":
-                log_train("[Phase 1/3] Generating Out-Of-Fold predictions via 5-Fold CV...")
+                log_train("[Phase 1/3] 5-Fold Out-Of-Fold predictions...")
             elif phase == "phase_2":
-                log_train("[Phase 2/3] Fitting Level-2 Meta-Learner (Logistic Regression)...")
+                log_train("[Phase 2/3] Fitting Meta-Learner (Logistic Regression)...")
             elif phase == "phase_3":
-                log_train("[Phase 3/3] Refitting base estimators on full training data...")
+                log_train("[Phase 3/3] Refitting base estimators...")
 
         base_estimators = [build_model(m, mode="stacking", seed=args.seed) for m in args.parsed_models]
         meta_est = build_model("lr", seed=args.seed)
@@ -296,189 +284,110 @@ def train_single_method(args):
     y_pred = model.predict(Xte)
     acc = accuracy_score(yte, y_pred)
 
-    log_eval(f"Accuracy      : {acc:.4f} ({acc*100:.2f}%)")
-    log_eval(f"Training Time : {train_time:.2f}s")
+    print("=" * 60)
+    print(f" RESULT | seed={args.seed}")
+    print("=" * 60)
+    print_table(
+        ["Model", "Train acc", "Test acc", "Fit time"],
+        [[method.title(), f"{accuracy_score(ytr, model.predict(Xtr)):.4f}",
+          f"{acc:.4f}", f"{train_time:.2f}s"]],
+    )
 
     # ==================================================
     # 5. ARTIFACTS
     # ==================================================
     print()
-    cf_path = save_single_confusion(
-        yte=yte,
-        y_pred=y_pred,
-        title=f"Confusion Matrix - {method.upper()} (Acc: {acc:.4f})",
-        path="figs/confusion.png",
-    )
-    print("=" * 50)
+    if not args.no_plots:
+        cf_path = save_single_confusion(
+            yte=yte,
+            y_pred=y_pred,
+            title=f"Confusion Matrix ({method.title()})",
+            path=os.path.join(args.fig_dir, "confusion.png"),
+        )
+        log_done(f"Saved: {cf_path}")
+    print("=" * 60)
 
 
 def run_all(args):
-    """Huan luyen va so sanh toan bo cac phuong phap theo dung 5 phan tieu chuan."""
-    bag_t = args.n_estimators if args.n_estimators is not None else 50
-    ada_t = args.n_estimators if args.n_estimators is not None else 100
-    ada_lr = args.learning_rate if args.learning_rate is not None else 1.0
+    """Compare baselines and ensembles on identical stratified splits."""
+    bag_t = args.n_estimators or 50
+    ada_t = args.n_estimators or 100
+    ada_lr = args.learning_rate or 1.0
 
-    # ==================================================
-    # 1. CONFIGURATION
-    # ==================================================
-    print("=" * 50)
-    print(" ENSEMBLE LEARNING | TRAINING (ALL METHODS)")
-    print("=" * 50)
-    print(f" Method       : All (Comparison Mode)")
-    print(f" Dataset      : Scikit-Learn Digits (0-9)")
-    print(f" Seed         : {args.seed}")
-    print(f" Test Size    : {args.test_size}")
-    print(f" N Estimators : {bag_t} (Bagging) / {ada_t} (Boosting)")
-    print(f" Learning Rate: {ada_lr} (Boosting)")
-    print(f" Stacking     : Base (DT, KNN, SVM) -> Meta (LR, cv=5)")
-    print("-" * 50)
+    print("\n" + "=" * 60)
+    print(" ENSEMBLE LEARNING | COMPARISON")
+    print("=" * 60)
+    print(f" Dataset       : Digits ({args.test_size*100:.0f}% test split)")
+    print(f" Repeats       : {args.repeats} split(s) | seeds {args.seed}..{args.seed + args.repeats - 1}")
+    print(f" Bagging       : {bag_t} trees")
+    print(f" AdaBoost      : {ada_t} stumps (lr={ada_lr})")
+    print(f" Stacking      : {','.join(args.parsed_models)} -> LR (5-fold)")
+    print("=" * 60)
 
-    # ==================================================
-    # 2. DATASET
-    # ==================================================
-    Xtr, ytr, Xte, yte, _ = load_data(test_size=args.test_size, seed=args.seed)
-    classes = np.unique(ytr)
-    log_info(f"Dataset loaded: {len(ytr)+len(yte)} samples, {Xtr.shape[1]} features (10 classes: 0..9)")
-    log_info(f"Train: {len(ytr)} | Test: {len(yte)}")
+    runs = []
+    first = None
+    for i in range(args.repeats):
+        split_seed = args.seed + i
+        print(f"\n[RUN {i + 1:>2}/{args.repeats}] seed={split_seed}...")
+        start = time.perf_counter()
+        result = evaluate_split(split_seed, args.test_size, bag_t, ada_t, ada_lr, args.parsed_models)
+        runs.append(result["scores"])
+        if first is None:
+            first = result
+        best_name = max(MODEL_ORDER, key=lambda name: result["scores"][name])
+        print(f"[DONE] {time.perf_counter() - start:.1f}s | best: {best_name} ({result['scores'][best_name]:.4f})")
 
-    # ==================================================
-    # 3. TRAINING EACH METHOD & MODEL
-    # ==================================================
-    models = get_base_models(seed=args.seed)
-    fit_times = {}
-    test_accs = {}
-
-    # --- [1/4] BASE MODELS ---
-    print("\n" + "-" * 50)
-    print(" [1/4] BASE MODELS (Mo hinh co so)")
-    print("-" * 50)
-    for idx, (name, m) in enumerate(list(models.items()), 1):
-        t0 = time.perf_counter()
-        m.fit(Xtr, ytr)
-        t_fit = time.perf_counter() - t0
-        fit_times[name] = t_fit
-        acc = accuracy_score(yte, m.predict(Xte))
-        test_accs[name] = acc
-        log_train(f"[{idx}/{len(models)}] Fitting {name}... done in {t_fit:.4f}s | Test Acc: {acc:.4f} ({acc*100:.2f}%)")
-
-    # --- [2/4] BAGGING ---
-    print("\n" + "-" * 50)
-    print(f" [2/4] BAGGING ({bag_t} estimators)")
-    print("-" * 50)
-    log_info(f"Initializing BaggingClassifier ({bag_t} estimators)...")
-    log_train("Training started...")
-
-    def bag_callback(curr, total):
-        step = max(1, total // 5)
-        if curr == 1 or curr == total or curr % step == 0:
-            pct = int((curr / total) * 100)
-            log_train(f"Fitting estimators: {curr}/{total} ({pct}%)")
-
-    t0 = time.perf_counter()
-    bag = Bagging(base_estimator=build_model("dt", mode="bagging", seed=args.seed), T=bag_t, seed=args.seed)
-    bag.fit(Xtr, ytr, callback=bag_callback)
-    bag_fit_time = time.perf_counter() - t0
-    bag_name = f"Bagging ({bag_t} cay)"
-    fit_times[bag_name] = bag_fit_time
-    models[bag_name] = bag
-    bag_acc = accuracy_score(yte, bag.predict(Xte))
-    test_accs[bag_name] = bag_acc
-    log_done(f"Training completed in {bag_fit_time:.2f}s")
-    log_eval(f"Test Accuracy : {bag_acc:.4f} ({bag_acc*100:.2f}%)")
-
-    # --- [3/4] BOOSTING ---
-    print("\n" + "-" * 50)
-    print(f" [3/4] BOOSTING (AdaBoost SAMME, {ada_t} stump, lr={ada_lr})")
-    print("-" * 50)
-    log_info(f"Initializing AdaBoost (SAMME, {ada_t} weak learners, lr={ada_lr})...")
-    log_train("Training started...")
-
-    def ada_callback(curr, total):
-        step = max(1, total // 5)
-        if curr == 1 or curr == total or curr % step == 0:
-            pct = int((curr / total) * 100)
-            log_train(f"Iterating weak learners: {curr}/{total} ({pct}%)")
-
-    t0 = time.perf_counter()
-    ada = AdaBoost(base_estimator=build_model("dt", mode="boosting", seed=args.seed), T=ada_t, learning_rate=ada_lr, random_state=args.seed)
-    ada.fit(Xtr, ytr, callback=ada_callback)
-    ada_fit_time = time.perf_counter() - t0
-    ada_name = f"AdaBoost ({ada_t} stump)"
-    fit_times[ada_name] = ada_fit_time
-    models[ada_name] = ada
-    ada_acc = accuracy_score(yte, ada.predict(Xte))
-    test_accs[ada_name] = ada_acc
-    log_done(f"Training completed in {ada_fit_time:.2f}s")
-    log_eval(f"Test Accuracy : {ada_acc:.4f} ({ada_acc*100:.2f}%)")
-
-    # --- [4/4] STACKING ---
-    print("\n" + "-" * 50)
-    print(" [4/4] STACKING (DT + KNN + SVM -> LR, cv=5)")
-    print("-" * 50)
-    log_info("Initializing StackingClassifier...")
-    log_train("Training started...")
-
-    def stk_callback(phase):
-        if phase == "phase_1":
-            log_train("[Phase 1/3] Generating Out-Of-Fold predictions via 5-Fold CV...")
-        elif phase == "phase_2":
-            log_train("[Phase 2/3] Fitting Level-2 Meta-Learner (Logistic Regression)...")
-        elif phase == "phase_3":
-            log_train("[Phase 3/3] Refitting base estimators on full training data...")
-
-    t0 = time.perf_counter()
-    stk_bases = [build_model("dt", mode="stacking", seed=args.seed), build_model("knn", seed=args.seed), build_model("svm", seed=args.seed)]
-    meta_est = build_model("lr", seed=args.seed)
-    stk = Stacking(base_estimators=stk_bases, meta_estimator=meta_est, k=5, seed=args.seed)
-    stk.fit(Xtr, ytr, callback=stk_callback)
-    stk_fit_time = time.perf_counter() - t0
-    stk_name = "Stacking (DT+KNN+SVM -> LR)"
-    fit_times[stk_name] = stk_fit_time
-    models[stk_name] = stk
-    stk_acc = accuracy_score(yte, stk.predict(Xte))
-    test_accs[stk_name] = stk_acc
-    log_done(f"Training completed in {stk_fit_time:.2f}s")
-    log_eval(f"Test Accuracy : {stk_acc:.4f} ({stk_acc*100:.2f}%)")
-
-    # ==================================================
-    # 4. FINAL COMPARISON TABLE
-    # ==================================================
-    print("\n" + "=" * 50)
-    print(" FINAL EVALUATION & COMPARISON")
-    print("=" * 50)
-    eval_rows = []
-    res = {}
-    for name, m in models.items():
-        tr_acc = accuracy_score(ytr, m.predict(Xtr))
-        te_acc = test_accs[name]
-        t_fit = fit_times[name]
-        res[name] = (tr_acc, te_acc)
-        eval_rows.append([name, f"{tr_acc:.4f}", f"{te_acc:.4f}", f"{t_fit:.4f}s"])
-
+    print("\n" + "=" * 60)
+    print(f" FIRST SPLIT | seed={args.seed}")
+    print("=" * 60)
     print_table(
-        headers=["Mo hinh", "Train Acc", "Test Acc", "Fit Time"],
-        rows=eval_rows,
-        alignments=["<", ">", ">", ">"],
+        ["Model", "Train acc", "Test acc", "Fit time"],
+        [[name, f"{first['train_scores'][name]:.4f}",
+          f"{first['scores'][name]:.4f}", f"{first['times'][name]:.2f}s"]
+         for name in MODEL_ORDER],
     )
 
-    # ==================================================
-    # 5. ARTIFACTS
-    # ==================================================
-    save_visualizations(
-        res=res,
-        ytr=ytr,
-        yte=yte,
-        Xtr=Xtr,
-        Xte=Xte,
-        ada=ada,
-        bag=bag,
-        stk=stk,
-        adaboost_t=ada_t,
-        bagging_t=bag_t,
-        stk_name=stk_name,
-        fig_dir="figs",
+    reference_scores = evaluate_references(first, bag_t, ada_t, ada_lr, args.parsed_models)
+    print("\n" + "=" * 60)
+    print(f" SCIKIT-LEARN REFERENCE | first split only, seed={args.seed}")
+    print("=" * 60)
+    print_table(
+        ["Ensemble", "Custom acc", "Library acc", "Difference"],
+        [[name, f"{first['scores'][name]:.4f}", f"{reference_scores[name]:.4f}",
+          f"{first['scores'][name] - reference_scores[name]:+.4f}"]
+         for name in ("Bagging", "AdaBoost", "Stacking")],
     )
-    print("=" * 50)
+
+    summary = summarize_scores(runs)
+    print("\n" + "=" * 60)
+    split_label = "SPLIT" if args.repeats == 1 else "SPLITS"
+    print(f" SUMMARY | {args.repeats} {split_label}")
+    print("=" * 60)
+    print_table(
+        ["Model", "Test acc", "Baseline", "Paired gain"],
+        [[name, f"{summary[name]['mean']:.4f} +/- {summary[name]['std']:.4f}",
+          summary[name]["baseline"] or "-",
+          f"{summary[name]['paired_delta']:+.4f}" if summary[name]["paired_delta"] is not None else "-"]
+         for name in MODEL_ORDER],
+    )
+
+    if not args.no_plots:
+        Xtr, ytr, Xte, yte = first["data"]
+        models = first["models"]
+        plot_scores = {name: (first["train_scores"][name], first["scores"][name])
+                       for name in MODEL_ORDER}
+        saved = save_visualizations(
+            res=plot_scores, ytr=ytr, yte=yte, Xtr=Xtr, Xte=Xte,
+            ada=models["AdaBoost"], bag=models["Bagging"], stk=models["Stacking"],
+            adaboost_t=ada_t, bagging_t=bag_t, stk_name="Stacking", fig_dir=args.fig_dir,
+        )
+        if args.repeats > 1:
+            saved.append(save_stability_plot(
+                list(MODEL_ORDER), [summary[name]["mean"] for name in MODEL_ORDER],
+                [summary[name]["std"] for name in MODEL_ORDER], args.repeats, args.fig_dir,
+            ))
+        for path in saved:
+            print(f"[SAVED] {path}")
 
 
 def main():
