@@ -33,84 +33,42 @@ def log_done(msg):
     print(f"[DONE] {msg}")
 
 
-def log_warn(msg):
-    """Xuat log muc WARN."""
-    print(f"[WARN] {msg}")
-
-
-def log_error(msg):
-    """Xuat log muc ERROR."""
-    print(f"[ERROR] {msg}")
-
-
-def log_eval(msg):
-    """Xuat log muc EVAL."""
-    print(f"[EVAL] {msg}")
-
-
-def log(tag, msg):
-    """Tuong thich nguoc."""
-    print(f"[{tag}] {msg}")
-
-
-def format_confusion_matrix(cm, classes=None):
-    """Dinh dang ma tran nham lan thanh khoi van ban gon gang, can hang cot deu dep."""
-    if classes is None:
-        classes = list(range(len(cm)))
-    header = "       " + " ".join([f"{c:>4d}" for c in classes])
-    lines = [header]
-    for idx, c in enumerate(classes):
-        row_str = " ".join([f"{cm[idx, j]:>4d}" for j in range(len(classes))])
-        lines.append(f"  {c:>3d} [ {row_str} ]")
-    return "\n".join(lines)
-
-
 def print_table(headers, rows, alignments=None):
     """In bang ASCII tieu chuan, can le dep cho cac chi so ML."""
     if alignments is None:
         alignments = ["<"] + [">"] * (len(headers) - 1)
 
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for idx, val in enumerate(row):
-            col_widths[idx] = max(col_widths[idx], len(str(val)))
-
-    sep = "+" + "+".join(["-" * (w + 2) for w in col_widths]) + "+"
-    header_str = (
-        "|"
-        + "|".join([f" {h:^{col_widths[i]}} " for i, h in enumerate(headers)])
-        + "|"
-    )
+    widths = [max(len(str(val)) for val in [h] + [r[i] for r in rows]) for i, h in enumerate(headers)]
+    sep = "+" + "+".join(["-" * (w + 2) for w in widths]) + "+"
 
     print(sep)
-    print(header_str)
+    print("|" + "|".join([f" {h:^{widths[i]}} " for i, h in enumerate(headers)]) + "|")
     print(sep)
     for row in rows:
-        row_str = "|"
-        for i, (val, align) in enumerate(zip(row, alignments)):
-            w = col_widths[i]
-            val_str = str(val)
-            if align == ">":
-                cell = f" {val_str:>{w}} "
-            elif align == "^":
-                cell = f" {val_str:^{w}} "
-            else:
-                cell = f" {val_str:<{w}} "
-            row_str += cell + "|"
-        print(row_str)
+        cells = [
+            f" {str(v):>{w}} " if a == ">" else f" {str(v):^{w}} " if a == "^" else f" {str(v):<{w}} "
+            for v, a, w in zip(row, alignments, widths)
+        ]
+        print("|" + "|".join(cells) + "|")
     print(sep)
+
+
+def _save_fig(fig, path):
+    """Luu bieu do matplotlib va giai phong bo nho."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fig.tight_layout()
+    p = path.replace("\\", "/")
+    fig.savefig(p, dpi=150)
+    plt.close(fig)
+    return p
 
 
 def save_single_confusion(yte, y_pred, title, path="figs/confusion.png"):
     """Luu 1 ma tran nham lan duy nhat cho mo hinh don."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     fig, ax = plt.subplots(figsize=(6, 5))
     ConfusionMatrixDisplay.from_predictions(yte, y_pred, cmap="Blues", ax=ax)
     ax.set_title(title, fontsize=10)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    return path.replace("\\", "/")
+    return _save_fig(fig, path)
 
 
 def save_visualizations(
@@ -128,9 +86,6 @@ def save_visualizations(
     fig_dir="figs",
 ):
     """Xuat 3 bieu do tinh gon cho thi nghiem so sanh: acc_vs_T, compare, confusion."""
-    os.makedirs(fig_dir, exist_ok=True)
-    saved_paths = []
-
     # Bieu do 1: Accuracy theo T
     ada_tr = [accuracy_score(ytr, p) for p in ada.staged_predict(Xtr)]
     ada_te = [accuracy_score(yte, p) for p in ada.staged_predict(Xte)]
@@ -143,55 +98,34 @@ def save_visualizations(
     ax.plot(np.arange(1, len(bag_te) + 1), bag_te, c="tab:blue", lw=1.8, label="Bagging (Test)")
     if "Stump" in res:
         ax.axhline(res["Stump"][1], c="gray", ls=":", label="Stump (Test)")
-    ax.set_xlabel("Number of Estimators (T)")
-    ax.set_ylabel("Accuracy")
-    ax.set_ylim(0.15, 1.02)
+    ax.set(xlabel="Number of Estimators (T)", ylabel="Accuracy", ylim=(0.15, 1.02), title="Accuracy vs. Number of Estimators")
     ax.legend()
     ax.grid(alpha=0.3)
-    ax.set_title("Accuracy vs. Number of Estimators")
-    fig.tight_layout()
-    p1 = os.path.join(fig_dir, "acc_vs_T.png").replace("\\", "/")
-    fig.savefig(p1, dpi=150)
-    plt.close(fig)
-    saved_paths.append(p1)
+    p1 = _save_fig(fig, os.path.join(fig_dir, "acc_vs_T.png"))
 
     # Bieu do 2: So sanh Test Accuracy
     fig, ax = plt.subplots(figsize=(8.5, 4.5))
-    names_list = list(res.keys())
-    test_scores = [res[k][1] for k in names_list]
+    names = list(res.keys())
+    scores = [res[k][1] for k in names]
     colors = [
         "tab:blue" if "Bagging" in k else "tab:red" if "AdaBoost" in k else "tab:green" if "Stacking" in k else "#7f7f7f"
-        for k in names_list
+        for k in names
     ]
-    bars = ax.barh(names_list, test_scores, color=colors)
-    for b, score in zip(bars, test_scores):
+    bars = ax.barh(names, scores, color=colors)
+    for b, score in zip(bars, scores):
         ax.text(score + 0.005, b.get_y() + b.get_height() / 2, f"{score:.4f}", va="center", fontsize=9)
-    ax.set_xlim(0, 1.05)
+    ax.set(xlim=(0, 1.05), xlabel="Test Accuracy", title="Model Accuracy Comparison")
     ax.invert_yaxis()
-    ax.set_xlabel("Test Accuracy")
-    ax.set_title("Model Accuracy Comparison")
-    fig.tight_layout()
-    p2 = os.path.join(fig_dir, "compare.png").replace("\\", "/")
-    fig.savefig(p2, dpi=150)
-    plt.close(fig)
-    saved_paths.append(p2)
+    p2 = _save_fig(fig, os.path.join(fig_dir, "compare.png"))
 
     # Bieu do 3: Ma tran nham lan cua Stacking
-    fig, ax = plt.subplots(figsize=(6, 5))
-    ConfusionMatrixDisplay.from_predictions(yte, stk.predict(Xte), cmap="Blues", ax=ax)
-    ax.set_title(f"Confusion Matrix ({stk_name})", fontsize=10)
-    fig.tight_layout()
-    p3 = os.path.join(fig_dir, "confusion.png").replace("\\", "/")
-    fig.savefig(p3, dpi=150)
-    plt.close(fig)
-    saved_paths.append(p3)
+    p3 = save_single_confusion(yte, stk.predict(Xte), f"Confusion Matrix ({stk_name})", os.path.join(fig_dir, "confusion.png"))
 
-    return saved_paths
+    return [p1, p2, p3]
 
 
 def save_stability_plot(names, means, stds, n, fig_dir="figs"):
     """Xuat bieu do so sanh do on dinh Mean +- Std qua n lan lap."""
-    os.makedirs(fig_dir, exist_ok=True)
     fig, ax = plt.subplots(figsize=(8.5, 4.5))
     colors = [
         "tab:blue" if "Bagging" in k else "tab:red" if "AdaBoost" in k else "tab:green" if "Stacking" in k else "#7f7f7f"
@@ -200,12 +134,6 @@ def save_stability_plot(names, means, stds, n, fig_dir="figs"):
     ax.barh(names, means, xerr=stds, color=colors, capsize=3)
     for i, (m, s_) in enumerate(zip(means, stds)):
         ax.text(m + s_ + 0.005, i, f"{m:.4f}", va="center", fontsize=9)
-    ax.set_xlim(0, 1.05)
+    ax.set(xlim=(0, 1.05), xlabel="Test Accuracy", title=f"Model Stability ({n} Repeats)")
     ax.invert_yaxis()
-    ax.set_xlabel("Test Accuracy")
-    ax.set_title(f"Model Stability ({n} Repeats)")
-    fig.tight_layout()
-    p4 = os.path.join(fig_dir, "compare_repeated.png").replace("\\", "/")
-    fig.savefig(p4, dpi=150)
-    plt.close(fig)
-    return p4
+    return _save_fig(fig, os.path.join(fig_dir, "compare_repeated.png"))

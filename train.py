@@ -34,8 +34,6 @@ def parse_args():
         description="Ensemble Learning (Bagging, AdaBoost SAMME, Stacking) on Digits",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    # 1. --method (Required)
     parser.add_argument(
         "--method",
         type=str,
@@ -43,48 +41,17 @@ def parse_args():
         choices=["bagging", "boosting", "stacking", "all"],
         help="Ensemble method: bagging | boosting | stacking | all",
     )
-
-    # 2. --base_model
     parser.add_argument(
         "--base_model",
         type=str,
         default=None,
         help="Base model: dt, knn, svm, lr (default: dt for bagging/boosting; dt,knn,lr for stacking/all)",
     )
-
-    # 3. --seed
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed",
-    )
-
-    # 4. --test_size
-    parser.add_argument(
-        "--test_size",
-        type=float,
-        default=0.3,
-        help="Test size ratio (0.0 < float < 1.0)",
-    )
-
-    # 5. --n_estimators
-    parser.add_argument(
-        "--n_estimators",
-        type=int,
-        default=None,
-        help="Number of estimators (bagging/boosting)",
-    )
-
-    # 6. --learning_rate
-    parser.add_argument(
-        "--learning_rate",
-        type=float,
-        default=None,
-        help="Learning rate (boosting)",
-    )
-    parser.add_argument("--repeats", type=int, default=10,
-                        help="Number of repeated splits for --method all")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--test_size", type=float, default=0.3, help="Test size ratio (0.0 < float < 1.0)")
+    parser.add_argument("--n_estimators", type=int, default=None, help="Number of estimators (bagging/boosting)")
+    parser.add_argument("--learning_rate", type=float, default=None, help="Learning rate (boosting)")
+    parser.add_argument("--repeats", type=int, default=10, help="Number of repeated splits for --method all")
     parser.add_argument("--no_plots", action="store_true", help="Do not save plots to disk")
     parser.add_argument("--fig_dir", default="figs", help="Directory for plots")
 
@@ -93,87 +60,59 @@ def parse_args():
     # --- VALIDATION ---
     if args.seed < 0:
         parser.error("--seed must be >= 0.")
-
     if not (0.0 < args.test_size < 1.0):
         parser.error("--test_size must be between 0.0 and 1.0.")
-
     if args.n_estimators is not None and args.n_estimators < 1:
         parser.error("--n_estimators must be >= 1.")
-
     if args.learning_rate is not None and args.learning_rate <= 0:
         parser.error("--learning_rate must be > 0.")
     if args.repeats < 1:
         parser.error("--repeats must be >= 1.")
 
-    # --- METHOD-SPECIFIC RULES ---
     method = args.method.lower()
 
     if method == "all":
-        if args.base_model is None:
-            args.parsed_models = ["dt", "knn", "lr"]
-        else:
-            args.parsed_models = [m.strip().lower() for m in args.base_model.split(",") if m.strip()]
-            if not args.parsed_models or any(m not in SUPPORTED_MODELS for m in args.parsed_models):
-                parser.error("--base_model for 'all' must be chosen from: dt, knn, svm, lr.")
+        args.parsed_models = [m.strip().lower() for m in (args.base_model or "dt,knn,lr").split(",") if m.strip()]
+        if not args.parsed_models or any(m not in SUPPORTED_MODELS for m in args.parsed_models):
+            parser.error("--base_model for 'all' must be chosen from: dt, knn, svm, lr.")
 
     elif method == "stacking":
         if args.n_estimators is not None:
             parser.error("--n_estimators is not applicable to stacking.")
         if args.learning_rate is not None:
             parser.error("--learning_rate is not applicable to stacking.")
-
-        if args.base_model is None:
-            args.base_model = "dt,knn,lr"
-
-        model_tokens = [m.strip().lower() for m in args.base_model.split(",") if m.strip()]
-        if not model_tokens:
+        args.base_model = args.base_model or "dt,knn,lr"
+        tokens = [m.strip().lower() for m in args.base_model.split(",") if m.strip()]
+        if not tokens:
             parser.error("Stacking requires at least 1 valid base model.")
-        for m in model_tokens:
+        for m in tokens:
             if m not in SUPPORTED_MODELS:
                 parser.error(f"Base model '{m}' is not supported. Supported: {', '.join(SUPPORTED_MODELS)}.")
-        args.parsed_models = model_tokens
+        args.parsed_models = tokens
 
     elif method == "bagging":
         if args.learning_rate is not None:
             parser.error("--learning_rate is not applicable to bagging.")
-
-        if args.n_estimators is None:
-            args.n_estimators = 50
-
-        if args.base_model is None:
-            args.base_model = "dt"
-        else:
-            args.base_model = args.base_model.strip().lower()
-            if "," in args.base_model:
-                parser.error("Bagging only accepts a single base model, e.g. --base_model dt")
-            if args.base_model not in SUPPORTED_MODELS:
-                parser.error(f"Base model '{args.base_model}' is not supported. Supported: {', '.join(SUPPORTED_MODELS)}.")
+        args.n_estimators = args.n_estimators or 50
+        args.base_model = (args.base_model or "dt").strip().lower()
+        if "," in args.base_model:
+            parser.error("Bagging only accepts a single base model, e.g. --base_model dt")
+        if args.base_model not in SUPPORTED_MODELS:
+            parser.error(f"Base model '{args.base_model}' is not supported. Supported: {', '.join(SUPPORTED_MODELS)}.")
 
     elif method == "boosting":
-        if args.n_estimators is None:
-            args.n_estimators = 100
-
-        if args.learning_rate is None:
-            args.learning_rate = 1.0
-
-        if args.base_model is None:
-            args.base_model = "dt"
-        else:
-            args.base_model = args.base_model.strip().lower()
-            if args.base_model != "dt":
-                parser.error("Boosting (AdaBoost) only supports base model 'dt' (Decision Stump).")
+        args.n_estimators = args.n_estimators or 100
+        args.learning_rate = args.learning_rate or 1.0
+        args.base_model = (args.base_model or "dt").strip().lower()
+        if args.base_model != "dt":
+            parser.error("Boosting (AdaBoost) only supports base model 'dt' (Decision Stump).")
 
     return args
 
 
 def get_base_model_label(code):
     """Map model code to clean display name."""
-    mapping = {
-        "dt": "Decision Tree",
-        "knn": "KNN",
-        "svm": "SVM",
-        "lr": "Logistic Regression",
-    }
+    mapping = {"dt": "Decision Tree", "knn": "KNN", "svm": "SVM", "lr": "Logistic Regression"}
     return mapping.get(code.lower(), code.upper())
 
 
@@ -181,9 +120,7 @@ def train_single_method(args):
     """Huan luyen 1 phuong phap Ensemble don le theo dung 5 phan tieu chuan."""
     method = args.method.lower()
 
-    # ==================================================
     # 1. CONFIGURATION
-    # ==================================================
     print("=" * 60)
     print(f" ENSEMBLE TRAINING: {method.upper()}")
     print("=" * 60)
@@ -193,93 +130,57 @@ def train_single_method(args):
         print(f" Base Model   : {get_base_model_label(args.base_model)}")
         print(f" N Estimators : {args.n_estimators}")
     elif method == "boosting":
-        print(f" Base Model   : Decision Tree (stump)")
+        print(" Base Model   : Decision Tree (stump)")
         print(f" N Estimators : {args.n_estimators}")
         print(f" Learning Rate: {args.learning_rate}")
     elif method == "stacking":
         base_labels = ", ".join([get_base_model_label(m) for m in args.parsed_models])
         print(f" Base Models  : {base_labels}")
-        print(f" Meta-Model   : Logistic Regression")
-        print(f" CV           : 5-Fold OOF")
+        print(" Meta-Model   : Logistic Regression")
+        print(" CV           : 5-Fold OOF")
 
     print(f" Seed         : {args.seed}")
     print(f" Test Size    : {args.test_size}")
     print("=" * 60)
 
-    # ==================================================
     # 2. DATASET
-    # ==================================================
     Xtr, ytr, Xte, yte, _ = load_data(test_size=args.test_size, seed=args.seed)
     log_info(f"Dataset: {len(ytr)+len(yte)} samples, {Xtr.shape[1]} features (Train: {len(ytr)} | Test: {len(yte)})")
 
-    # ==================================================
     # 3. TRAINING
-    # ==================================================
+    def _progress(curr, total, label):
+        step = max(1, total // 5)
+        if curr == 1 or curr == total or curr % step == 0:
+            log_train(f"{label}: {curr}/{total} ({int((curr / total) * 100)}%)")
+
     if method == "bagging":
         log_info(f"Initializing Bagging ({args.n_estimators} estimators)...")
-        log_train("Training started...")
-
-        def bagging_callback(curr, total):
-            step = max(1, total // 5)
-            if curr == 1 or curr == total or curr % step == 0:
-                pct = int((curr / total) * 100)
-                log_train(f"Fitting estimators: {curr}/{total} ({pct}%)")
-
         base_est = build_model(args.base_model, mode="bagging", seed=args.seed)
         model = Bagging(base_estimator=base_est, T=args.n_estimators, seed=args.seed)
-
-        t0 = time.perf_counter()
-        model.fit(Xtr, ytr, callback=bagging_callback)
-        train_time = time.perf_counter() - t0
-        log_done(f"Training completed in {train_time:.2f}s")
-
+        callback = lambda c, t: _progress(c, t, "Fitting estimators")
     elif method == "boosting":
         log_info(f"Initializing AdaBoost ({args.n_estimators} estimators, lr={args.learning_rate})...")
-        log_train("Training started...")
-
-        def boosting_callback(curr, total):
-            step = max(1, total // 5)
-            if curr == 1 or curr == total or curr % step == 0:
-                pct = int((curr / total) * 100)
-                log_train(f"Iterating weak learners: {curr}/{total} ({pct}%)")
-
         base_est = build_model("dt", mode="boosting", seed=args.seed)
-        model = AdaBoost(
-            base_estimator=base_est,
-            T=args.n_estimators,
-            learning_rate=args.learning_rate,
-            random_state=args.seed,
-        )
-
-        t0 = time.perf_counter()
-        model.fit(Xtr, ytr, callback=boosting_callback)
-        train_time = time.perf_counter() - t0
-        log_done(f"Training completed in {train_time:.2f}s")
-
-    elif method == "stacking":
+        model = AdaBoost(base_estimator=base_est, T=args.n_estimators, learning_rate=args.learning_rate, random_state=args.seed)
+        callback = lambda c, t: _progress(c, t, "Iterating weak learners")
+    else:  # stacking
         log_info("Initializing Stacking...")
-        log_train("Training started...")
+        base_ests = [build_model(m, mode="stacking", seed=args.seed) for m in args.parsed_models]
+        model = Stacking(base_estimators=base_ests, meta_estimator=build_model("lr", seed=args.seed), k=5, seed=args.seed)
+        phases = {
+            "phase_1": "[Phase 1/3] 5-Fold Out-Of-Fold predictions...",
+            "phase_2": "[Phase 2/3] Fitting Meta-Learner (Logistic Regression)...",
+            "phase_3": "[Phase 3/3] Refitting base estimators...",
+        }
+        callback = lambda p: log_train(phases.get(p, p))
 
-        def stacking_callback(phase):
-            if phase == "phase_1":
-                log_train("[Phase 1/3] 5-Fold Out-Of-Fold predictions...")
-            elif phase == "phase_2":
-                log_train("[Phase 2/3] Fitting Meta-Learner (Logistic Regression)...")
-            elif phase == "phase_3":
-                log_train("[Phase 3/3] Refitting base estimators...")
+    log_train("Training started...")
+    t0 = time.perf_counter()
+    model.fit(Xtr, ytr, callback=callback)
+    train_time = time.perf_counter() - t0
+    log_done(f"Training completed in {train_time:.2f}s")
 
-        base_estimators = [build_model(m, mode="stacking", seed=args.seed) for m in args.parsed_models]
-        meta_est = build_model("lr", seed=args.seed)
-        model = Stacking(base_estimators=base_estimators, meta_estimator=meta_est, k=5, seed=args.seed)
-
-        t0 = time.perf_counter()
-        model.fit(Xtr, ytr, callback=stacking_callback)
-        train_time = time.perf_counter() - t0
-        log_done(f"Training completed in {train_time:.2f}s")
-
-    # ==================================================
     # 4. EVALUATION
-    # ==================================================
     print()
     y_pred = model.predict(Xte)
     acc = accuracy_score(yte, y_pred)
@@ -289,13 +190,10 @@ def train_single_method(args):
     print("=" * 60)
     print_table(
         ["Model", "Train acc", "Test acc", "Fit time"],
-        [[method.title(), f"{accuracy_score(ytr, model.predict(Xtr)):.4f}",
-          f"{acc:.4f}", f"{train_time:.2f}s"]],
+        [[method.title(), f"{accuracy_score(ytr, model.predict(Xtr)):.4f}", f"{acc:.4f}", f"{train_time:.2f}s"]],
     )
 
-    # ==================================================
     # 5. ARTIFACTS
-    # ==================================================
     print()
     if not args.no_plots:
         cf_path = save_single_confusion(
@@ -374,8 +272,7 @@ def run_all(args):
     if not args.no_plots:
         Xtr, ytr, Xte, yte = first["data"]
         models = first["models"]
-        plot_scores = {name: (first["train_scores"][name], first["scores"][name])
-                       for name in MODEL_ORDER}
+        plot_scores = {name: (first["train_scores"][name], first["scores"][name]) for name in MODEL_ORDER}
         saved = save_visualizations(
             res=plot_scores, ytr=ytr, yte=yte, Xtr=Xtr, Xte=Xte,
             ada=models["AdaBoost"], bag=models["Bagging"], stk=models["Stacking"],
